@@ -419,9 +419,9 @@
     <span id="sVol">60</span>
   </div>
   <div class="slider-row">
-    <label>DECAY</label>
-    <input type="range" id="slDecay" min="5" max="100" value="40">
-    <span id="sDecay">40</span>
+    <label>DENSITY</label>
+    <input type="range" id="slDensity" min="2" max="15" value="6">
+    <span id="sDensity">6</span>
   </div>
   <div class="slider-row">
     <label>PITCH</label>
@@ -583,21 +583,18 @@ function renderClick(sr) {
   return buf;
 }
 
-// Play a pre-rendered buffer — only creates 3 nodes: source + gain + panner
-function triggerDrum(bufferName, vol = 0.5, pan = 0, rate = 1.0) {
+// Play a pre-rendered buffer — 1 node only: source → masterGain
+function triggerDrum(bufferName, rate = 1.0) {
   if (!audioCtx || !masterGain || !drumBuffers[bufferName]) return;
-  const src = audioCtx.createBufferSource();
-  src.buffer = drumBuffers[bufferName];
-  src.playbackRate.value = clamp(rate * pitchMult, 0.2, 4.0);
-  const gain = audioCtx.createGain();
-  gain.gain.value = clamp(vol, 0, 1);
-  const panner = audioCtx.createStereoPanner();
-  panner.pan.value = clamp(pan, -1, 1);
-  src.connect(gain);
-  gain.connect(panner);
-  panner.connect(masterGain);
-  src.start();
-  // No need to stop — BufferSource auto-stops at end of buffer
+  try {
+    const src = audioCtx.createBufferSource();
+    src.buffer = drumBuffers[bufferName];
+    src.playbackRate.value = clamp(rate * pitchMult, 0.3, 3.0);
+    src.connect(masterGain);
+    src.start();
+  } catch(e) {
+    // If context is broken, don't crash
+  }
 }
 
 // --- Map strike to percussion ---
@@ -605,28 +602,16 @@ function triggerDrum(bufferName, vol = 0.5, pan = 0, rate = 1.0) {
 function playStrikePerc(strike) {
   if (!audioCtx || !masterGain) return;
 
-  const { lat, lon, pol, region } = strike;
-  const pan = clamp(lon / 180, -1, 1);
-  const latRate = 0.7 + (Math.abs(lat) / 90) * 0.8; // pitch shift from latitude
+  const { lat, region } = strike;
+  const latRate = 0.7 + (Math.abs(lat) / 90) * 0.8;
 
   switch (region) {
-    case 'americas':
-      triggerDrum(pol > 0 ? 'kick' : 'kickLow', 0.6, pan, latRate);
-      break;
-    case 'europe':
-      triggerDrum('snap', 0.5, pan, latRate * 1.2);
-      break;
-    case 'asia':
-      triggerDrum(Math.random() < 0.15 ? 'hatOpen' : 'hat', 0.4, pan, 0.8 + Math.random() * 0.4);
-      break;
-    case 'africa':
-      triggerDrum(pol > 0 ? 'tom' : 'tomLow', 0.5, pan, latRate);
-      break;
-    case 'oceania':
-      triggerDrum('rim', 0.4, pan, latRate * 1.1);
-      break;
-    default:
-      triggerDrum('click', 0.3, pan, latRate);
+    case 'americas': triggerDrum('kick', latRate); break;
+    case 'europe':   triggerDrum('snap', latRate * 1.2); break;
+    case 'asia':     triggerDrum(Math.random() < 0.15 ? 'hatOpen' : 'hat', 0.8 + Math.random() * 0.4); break;
+    case 'africa':   triggerDrum('tom', latRate); break;
+    case 'oceania':  triggerDrum('rim', latRate * 1.1); break;
+    default:         triggerDrum('click', latRate);
   }
 }
 
@@ -682,7 +667,12 @@ function connectBlitzortung() {
       if (!wsConnected) {
         wsConnected = true;
         // Kill simulation — we have real data
-        if (simInterval) { clearInterval(simInterval); simInterval = null; }
+        if (simInterval) {
+          if (simInterval.main) clearInterval(simInterval.main);
+          if (simInterval.burst) clearInterval(simInterval.burst);
+          else clearInterval(simInterval);
+          simInterval = null;
+        }
         useSimulation = false;
         setConnectionState('live');
       }
@@ -809,39 +799,35 @@ function startSimulation() {
   useSimulation = true;
   setConnectionState('sim');
 
-  // Generate 20-60 strikes per second based on time of day & hotspots
-  let burstTimer = 0;
-
+  // Generate strikes at a sustainable rate — 1 strike every 150-300ms
   simInterval = setInterval(() => {
     if (!isRunning) return;
 
     const now = new Date();
     const utcHour = now.getUTCHours() + now.getUTCMinutes() / 60;
 
-    // Generate a batch (simulating ~40-80 strikes/sec, firing every 50ms)
-    const batchSize = 2 + Math.floor(Math.random() * 3);
+    // Single strike per tick
+    const spot = pickWeightedHotspot(utcHour);
+    const lat = spot[0] + (Math.random() - 0.5) * 15;
+    const lon = spot[1] + (Math.random() - 0.5) * 20;
 
-    for (let i = 0; i < batchSize; i++) {
-      // Pick a hotspot weighted by its weight + time-of-day factor
-      const spot = pickWeightedHotspot(utcHour);
-      const lat = spot[0] + (Math.random() - 0.5) * 15;
-      const lon = spot[1] + (Math.random() - 0.5) * 20;
+    handleStrike({
+      lat, lon,
+      time: Date.now() * 1000000,
+      pol: Math.random() < 0.85 ? -1 : 1,
+      region: classifyRegion(lat, lon),
+    });
+  }, 150 + Math.floor(Math.random() * 100)); // ~5-7 strikes/sec
 
-      handleStrike({
-        lat, lon,
-        time: Date.now() * 1000000,
-        pol: Math.random() < 0.85 ? -1 : 1,  // ~85% negative CG
-        region: classifyRegion(lat, lon),
-      });
-    }
-
-    // Occasional burst (simulating supercell)
-    burstTimer++;
-    if (burstTimer > 60 && Math.random() < 0.05) {
-      burstTimer = 0;
+  // Separate slower interval for occasional bursts
+  const burstInterval = setInterval(() => {
+    if (!isRunning) return;
+    if (Math.random() < 0.08) {
       const spot = HOTSPOTS[Math.floor(Math.random() * HOTSPOTS.length)];
-      for (let i = 0; i < 8 + Math.floor(Math.random() * 12); i++) {
+      // Just 2-3 rapid strikes, not 8-20
+      for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) {
         setTimeout(() => {
+          if (!isRunning) return;
           handleStrike({
             lat: spot[0] + (Math.random() - 0.5) * 3,
             lon: spot[1] + (Math.random() - 0.5) * 4,
@@ -849,10 +835,13 @@ function startSimulation() {
             pol: Math.random() < 0.9 ? -1 : 1,
             region: classifyRegion(spot[0], spot[1]),
           });
-        }, i * 20);
+        }, i * 200);
       }
     }
-  }, 50);
+  }, 3000);
+
+  // Store burst interval ref so we can clear it on stop
+  simInterval = { main: simInterval, burst: burstInterval };
 }
 
 function pickWeightedHotspot(utcHour) {
@@ -884,7 +873,7 @@ let clusterBuf = []; // recent strikes for cluster detection
 // Audio throttle — max N sounds per second to prevent context death
 let audioHitsThisFrame = 0;
 let lastAudioReset = 0;
-const MAX_AUDIO_PER_SEC = 12;
+let MAX_AUDIO_PER_SEC = 6; // user-controllable via density slider
 
 function handleStrike(data) {
   if (!isRunning) return;
@@ -1198,9 +1187,14 @@ function stopAll() {
   if (ws) { try { ws.close(); } catch(e) {} ws = null; }
   wsConnected = false;
   useSimulation = false;
-  if (simInterval) { clearInterval(simInterval); simInterval = null; }
+  if (simInterval) {
+    if (simInterval.main) clearInterval(simInterval.main);
+    if (simInterval.burst) clearInterval(simInterval.burst);
+    else clearInterval(simInterval);
+    simInterval = null;
+  }
   if (audioCtx) { try { audioCtx.close(); } catch(e) {} }
-  audioCtx = null; masterGain = null;
+  audioCtx = null; masterGain = null; drumBuffers = {};
   document.getElementById('startBtn').textContent = 'LISTEN';
   document.getElementById('startBtn').classList.remove('active');
   setConnectionState('');
@@ -1221,9 +1215,9 @@ document.getElementById('slVol').addEventListener('input', e => {
   document.getElementById('sVol').textContent = e.target.value;
 });
 
-document.getElementById('slDecay').addEventListener('input', e => {
-  decayTime = e.target.value / 100;
-  document.getElementById('sDecay').textContent = e.target.value;
+document.getElementById('slDensity').addEventListener('input', e => {
+  MAX_AUDIO_PER_SEC = parseInt(e.target.value);
+  document.getElementById('sDensity').textContent = e.target.value;
 });
 
 document.getElementById('slPitch').addEventListener('input', e => {
