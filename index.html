@@ -486,11 +486,9 @@ function norm(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
 // AUDIO ENGINE
 // ============================================================
 
-function initAudio() {
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
+function buildAudioGraph() {
   masterGain = audioCtx.createGain();
-  masterGain.gain.value = 0.6;
+  masterGain.gain.value = parseFloat(document.getElementById('slVolume').value) / 100;
 
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 4096;
@@ -1431,10 +1429,18 @@ requestAnimationFrame(mainLoop);
 
 let fetchInterval;
 
-document.getElementById('startBtn').addEventListener('click', async () => {
+async function togglePlay() {
   if (!isRunning) {
-    if (!audioCtx) initAudio();
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    // Create AudioContext inside user gesture — required for mobile
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // Must resume immediately inside the gesture before anything else
+      await audioCtx.resume();
+      // Now build the audio graph
+      buildAudioGraph();
+    } else if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
     isRunning = true;
     document.getElementById('startBtn').textContent = 'STOP';
     document.getElementById('startBtn').classList.add('active');
@@ -1443,13 +1449,19 @@ document.getElementById('startBtn').addEventListener('click', async () => {
   } else {
     isRunning = false;
     clearInterval(fetchInterval);
-    // Stop all audio — suspend the entire context
     if (audioCtx && audioCtx.state === 'running') {
       audioCtx.suspend();
     }
     document.getElementById('startBtn').textContent = 'LISTEN';
     document.getElementById('startBtn').classList.remove('active');
   }
+}
+
+// Both click and touchend for mobile
+document.getElementById('startBtn').addEventListener('click', togglePlay);
+document.getElementById('startBtn').addEventListener('touchend', (e) => {
+  e.preventDefault(); // prevent ghost click
+  togglePlay();
 });
 
 document.getElementById('slVolume').addEventListener('input', e => {
