@@ -9,14 +9,71 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
+  :root {
+    --bg: #000;
+    --text: #aaa;
+    --text-bright: #ddd;
+    --text-dim: #555;
+    --text-muted: #444;
+    --text-ghost: #333;
+    --border: #222;
+    --border-hover: #444;
+    --border-active: #666;
+    --track: #181818;
+    --track-fill: #111;
+    --slider-bg: #222;
+    --thumb: #888;
+    --marker: #fff;
+    --accent: #4f8;
+    --accent-active: #4f8;
+    --up: #4f8;
+    --down: #f55;
+    --bar-speed: #f80;
+    --bar-density: #48f;
+    --bar-temp: #f48;
+    --bar-bt: #f4f;
+    --bar-bz-n: #4f8;
+    --bar-bz-s: #f55;
+    --flash-shadow: 30px;
+  }
+
+  body.light {
+    --bg: #f3f0eb;
+    --text: #666;
+    --text-bright: #222;
+    --text-dim: #999;
+    --text-muted: #aaa;
+    --text-ghost: #bbb;
+    --border: #d0ccc4;
+    --border-hover: #a09888;
+    --border-active: #777;
+    --track: #e0ddd6;
+    --track-fill: #ddd9d0;
+    --slider-bg: #d8d4cb;
+    --thumb: #888;
+    --marker: #222;
+    --accent: #c85a20;
+    --accent-active: #c85a20;
+    --up: #7a8a40;
+    --down: #c85a20;
+    --bar-speed: #c85a20;
+    --bar-density: #8a7050;
+    --bar-temp: #b05030;
+    --bar-bt: #9a6a50;
+    --bar-bz-n: #7a8a40;
+    --bar-bz-s: #c85a20;
+    --flash-shadow: 50px;
+  }
+
   body {
-    background: #000;
-    color: #aaa;
+    background: var(--bg);
+    color: var(--text);
     font-family: 'IBM Plex Mono', monospace;
     height: 100vh;
     overflow: hidden;
     cursor: crosshair;
     user-select: none;
+    transition: background 0.6s, color 0.6s;
   }
 
   /* --- LAYERED CANVASES --- */
@@ -49,7 +106,7 @@
   .metric .label {
     font-size: 10px;
     letter-spacing: 0.12em;
-    color: #555;
+    color: var(--text-dim);
     text-transform: uppercase;
     margin-bottom: 2px;
   }
@@ -58,7 +115,7 @@
     font-size: 32px;
     font-weight: 500;
     letter-spacing: -0.02em;
-    color: #ddd;
+    color: var(--text-bright);
     line-height: 1;
     font-variant-numeric: tabular-nums;
   }
@@ -74,13 +131,13 @@
     transition: color 0.3s;
   }
 
-  .delta.up { color: #4f8; }
-  .delta.down { color: #f55; }
-  .delta.flat { color: #444; }
+  .delta.up { color: var(--up); }
+  .delta.down { color: var(--down); }
+  .delta.flat { color: var(--text-muted); }
 
   .metric .range {
     font-size: 9px;
-    color: #333;
+    color: var(--text-ghost);
     margin-top: 2px;
     letter-spacing: 0.06em;
   }
@@ -88,7 +145,7 @@
   .metric .bar-track {
     width: 160px;
     height: 3px;
-    background: #181818;
+    background: var(--track);
     margin-top: 6px;
     position: relative;
     border-radius: 1px;
@@ -111,7 +168,7 @@
     height: 7px;
     position: absolute;
     top: -2px;
-    background: #fff;
+    background: var(--marker);
     border-radius: 1px;
     transition: left 0.5s ease;
   }
@@ -148,10 +205,10 @@
 
   .start-btn {
     padding: 14px 40px;
-    border: 1px solid #333;
+    border: 1px solid var(--border);
     border-radius: 3px;
     background: transparent;
-    color: #999;
+    color: var(--text);
     font-family: inherit;
     font-size: 12px;
     font-weight: 500;
@@ -161,12 +218,12 @@
     transition: all 0.3s;
   }
 
-  .start-btn:hover { border-color: #888; color: #eee; }
-  .start-btn.active { border-color: #4f8; color: #4f8; }
+  .start-btn:hover { border-color: var(--border-hover); color: var(--text-bright); }
+  .start-btn.active { border-color: var(--accent-active); color: var(--accent-active); }
 
   .status-line {
     font-size: 9px;
-    color: #333;
+    color: var(--text-ghost);
     letter-spacing: 0.08em;
   }
 
@@ -185,7 +242,7 @@
 
   .view-modes label {
     font-size: 9px;
-    color: #444;
+    color: var(--text-muted);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     margin-bottom: 2px;
@@ -193,10 +250,10 @@
 
   .vm-btn {
     padding: 6px 14px;
-    border: 1px solid #222;
+    border: 1px solid var(--border);
     border-radius: 2px;
     background: transparent;
-    color: #555;
+    color: var(--text-dim);
     font-family: inherit;
     font-size: 9px;
     letter-spacing: 0.08em;
@@ -207,8 +264,8 @@
     text-align: right;
   }
 
-  .vm-btn:hover { border-color: #444; color: #999; }
-  .vm-btn.active { border-color: #666; color: #ccc; }
+  .vm-btn:hover { border-color: var(--border-hover); color: var(--text); }
+  .vm-btn.active { border-color: var(--border-active); color: var(--text-bright); }
 
   /* --- SLIDERS --- */
   .controls-left {
@@ -230,7 +287,7 @@
 
   .slider-row label {
     font-size: 9px;
-    color: #555;
+    color: var(--text-dim);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     width: 60px;
@@ -238,7 +295,7 @@
 
   .slider-row span {
     font-size: 9px;
-    color: #666;
+    color: var(--text-dim);
     width: 32px;
     text-align: right;
   }
@@ -247,7 +304,7 @@
     -webkit-appearance: none;
     width: 100px;
     height: 2px;
-    background: #222;
+    background: var(--slider-bg);
     outline: none;
     border-radius: 1px;
   }
@@ -256,7 +313,7 @@
     -webkit-appearance: none;
     width: 10px; height: 10px;
     border-radius: 50%;
-    background: #888;
+    background: var(--thumb);
     cursor: pointer;
   }
 
@@ -274,7 +331,7 @@
     pointer-events: none;
     text-align: center;
     line-height: 1.6;
-    text-shadow: 0 0 30px currentColor;
+    text-shadow: 0 0 var(--flash-shadow) currentColor;
   }
 
   .event-flash.show { animation: flashIn 4s forwards; }
@@ -298,7 +355,7 @@
   .age-bar {
     width: 3px;
     height: 120px;
-    background: #111;
+    background: var(--track);
     border-radius: 2px;
     position: relative;
   }
@@ -313,7 +370,7 @@
 
   .age-label {
     font-size: 8px;
-    color: #333;
+    color: var(--text-ghost);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     writing-mode: vertical-rl;
@@ -340,19 +397,19 @@
       <div class="value large" id="vSpeed">—</div>
       <div class="delta flat" id="dSpeed">—</div>
       <div class="range" id="rSpeed">2h range: —</div>
-      <div class="bar-track"><div class="bar-fill" id="bSpeed" style="background:#f80;width:0%"></div></div>
+      <div class="bar-track"><div class="bar-fill" id="bSpeed" style="background:var(--bar-speed);width:0%"></div></div>
     </div>
     <div class="metric">
       <div class="label">Proton Density</div>
       <div class="value" id="vDensity">—</div>
       <div class="delta flat" id="dDensity">—</div>
-      <div class="bar-track"><div class="bar-fill" id="bDensity" style="background:#48f;width:0%"></div></div>
+      <div class="bar-track"><div class="bar-fill" id="bDensity" style="background:var(--bar-density);width:0%"></div></div>
     </div>
     <div class="metric">
       <div class="label">Temperature</div>
       <div class="value" id="vTemp">—</div>
       <div class="delta flat" id="dTemp">—</div>
-      <div class="bar-track"><div class="bar-fill" id="bTemp" style="background:#f48;width:0%"></div></div>
+      <div class="bar-track"><div class="bar-fill" id="bTemp" style="background:var(--bar-temp);width:0%"></div></div>
     </div>
   </div>
 
@@ -363,19 +420,19 @@
       <div class="value large" id="vBz">—</div>
       <div class="delta flat" id="dBz">—</div>
       <div class="range" id="rBz">2h range: —</div>
-      <div class="bar-track"><div class="bar-fill" id="bBz" style="background:#4f8;width:50%"></div><div class="bar-marker" id="mBz" style="left:50%"></div></div>
+      <div class="bar-track"><div class="bar-fill" id="bBz" style="background:var(--bar-bz-n);width:50%"></div><div class="bar-marker" id="mBz" style="left:50%"></div></div>
     </div>
     <div class="metric">
       <div class="label">IMF Bt</div>
       <div class="value" id="vBt">—</div>
       <div class="delta flat" id="dBt">—</div>
-      <div class="bar-track"><div class="bar-fill" id="bBt" style="background:#f4f;width:0%"></div></div>
+      <div class="bar-track"><div class="bar-fill" id="bBt" style="background:var(--bar-bt);width:0%"></div></div>
     </div>
     <div class="metric">
       <div class="label">Kp Index</div>
       <div class="value" id="vKp">—</div>
       <div class="delta flat" id="dKp">—</div>
-      <div class="bar-track"><div class="bar-fill" id="bKp" style="background:#f80;width:0%"></div></div>
+      <div class="bar-track"><div class="bar-fill" id="bKp" style="background:var(--bar-speed);width:0%"></div></div>
     </div>
   </div>
 
@@ -387,7 +444,7 @@
     </div>
     <div class="metric">
       <div class="label">Scan Position</div>
-      <div class="value" id="vScan" style="font-size:14px;color:#555">0%</div>
+      <div class="value" id="vScan" style="font-size:14px;color:var(--text-dim)">0%</div>
     </div>
   </div>
 
@@ -399,7 +456,7 @@
     </div>
     <div class="metric">
       <div class="label">Data Points</div>
-      <div class="value" id="vSamples" style="font-size:14px;color:#555">—</div>
+      <div class="value" id="vSamples" style="font-size:14px;color:var(--text-dim)">—</div>
     </div>
   </div>
 </div>
@@ -413,7 +470,7 @@
 
 <div class="data-age">
   <div class="age-label">FRESHNESS</div>
-  <div class="age-bar"><div class="age-fill" id="ageFill" style="height:100%;background:#4f8"></div></div>
+  <div class="age-bar"><div class="age-fill" id="ageFill" style="height:100%;background:var(--accent)"></div></div>
 </div>
 
 <div class="view-modes">
@@ -423,6 +480,8 @@
   <button class="vm-btn" data-mode="polar">POLAR IMF</button>
   <button class="vm-btn" data-mode="raw">RAW SIGNAL</button>
   <button class="vm-btn" data-mode="minimal">MINIMAL</button>
+  <label style="margin-top:10px">Theme</label>
+  <button class="vm-btn" id="themeToggle">LIGHT</button>
 </div>
 
 <div class="controls-left">
@@ -456,6 +515,7 @@ let isRunning = false;
 let sensitivity = 0.75;
 let scanRate = 90; // seconds per full sweep
 let viewMode = 'field';
+let lightMode = false;
 
 // Persistent sound sources
 let drones = {};
@@ -481,6 +541,13 @@ let impulseFlashes = []; // { x, y, size, alpha, color, age }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function lerp(a, b, t) { return a + (b - a) * t; }
 function norm(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
+
+// Theme-aware color palette
+function C(name) {
+  const dark = { speed: '#f80', bz_n: '#4f8', bz_s: '#f55', density: '#48f', bt: '#f4f', temp: '#f44', accent: '#4f8', warn: '#f80', dim: '#555' };
+  const light = { speed: '#c85a20', bz_n: '#7a8a40', bz_s: '#c85a20', density: '#8a7050', bt: '#9a6a50', temp: '#b05030', accent: '#c85a20', warn: '#b05030', dim: '#999' };
+  return (lightMode ? light : dark)[name] || '#888';
+}
 
 // ============================================================
 // AUDIO ENGINE
@@ -691,7 +758,7 @@ function fireImpulse(type, mag) {
   // Visual flash
   const cx = fieldCanvas.width / (window.devicePixelRatio || 1);
   const cy = fieldCanvas.height / (window.devicePixelRatio || 1);
-  const colors = { speed: '#f80', bz: '#4f8', density: '#48f', bt: '#f4f', temp: '#f44' };
+  const colors = { speed: C('speed'), bz: C('bz_n'), density: C('density'), bt: C('bt'), temp: C('temp') };
 
   impulseFlashes.push({
     x: type === 'bz' ? cx * 0.8 : type === 'speed' ? cx * 0.2 : cx * 0.5 + (Math.random() - 0.5) * cx * 0.4,
@@ -788,7 +855,7 @@ function triggerEvent(type, detail) {
       y: cy / 2 + (Math.random() - 0.5) * cy * 0.4,
       size: 60 + Math.random() * 200,
       alpha: 0.2 + Math.random() * 0.3,
-      color: type === 'bz_flip' ? (detail.dir > 0 ? '#4f8' : '#f44') : type === 'shock' ? '#f80' : '#f4f',
+      color: type === 'bz_flip' ? (detail.dir > 0 ? C('bz_n') : C('bz_s')) : type === 'shock' ? C('speed') : C('bt'),
       age: 0,
     });
   }
@@ -888,10 +955,10 @@ function showEventFlash(type, detail) {
     density_spike: `COMPRESSION REGION\nDENSITY SURGE`,
   };
   const colors = {
-    bz_flip: detail.dir > 0 ? '#4f8' : '#f44',
-    shock: '#f80',
-    storm: '#f4f',
-    density_spike: '#48f',
+    bz_flip: detail.dir > 0 ? C('bz_n') : C('bz_s'),
+    shock: C('speed'),
+    storm: C('bt'),
+    density_spike: C('density'),
   };
   el.textContent = labels[type] || type.toUpperCase();
   el.style.color = colors[type] || '#fff';
@@ -1050,7 +1117,7 @@ function updateHUD() {
   setDelta('dKp', raw.kp - raw.prevKp, 0.1);
 
   // Bz color
-  document.getElementById('vBz').style.color = c.bz >= 0 ? '#4f8' : '#f55';
+  document.getElementById('vBz').style.color = c.bz >= 0 ? C('bz_n') : C('bz_s');
 
   // Bars
   setBar('bSpeed', norm(c.speed, 250, 800));
@@ -1063,7 +1130,7 @@ function updateHUD() {
   const bzN = norm(c.bz, -20, 20);
   document.getElementById('bBz').style.width = `${Math.abs(bzN - 0.5) * 200}%`;
   document.getElementById('bBz').style.left = bzN < 0.5 ? `${bzN * 100}%` : '50%';
-  document.getElementById('bBz').style.background = c.bz >= 0 ? '#4f8' : '#f55';
+  document.getElementById('bBz').style.background = c.bz >= 0 ? C('bz_n') : C('bz_s');
   document.getElementById('mBz').style.left = `${bzN * 100}%`;
 
   // Ranges
@@ -1079,7 +1146,7 @@ function updateHUD() {
   const scaleStr = `R${R} · S${S} · G${G}`;
   const scaleEl = document.getElementById('vScales');
   scaleEl.textContent = scaleStr;
-  scaleEl.style.color = G >= 3 ? '#f44' : G >= 1 ? '#f80' : '#555';
+  scaleEl.style.color = G >= 3 ? C('temp') : G >= 1 ? C('warn') : C('dim');
 
   // Scan
   document.getElementById('vScan').textContent = `${Math.round(raw.scanPos * 100)}% through 2h window`;
@@ -1092,12 +1159,12 @@ function updateHUD() {
   const age = (Date.now() - raw.lastFetchTime) / 30000; // 0–1 over 30s
   const ageFill = document.getElementById('ageFill');
   ageFill.style.height = `${Math.max(0, (1 - age)) * 100}%`;
-  ageFill.style.background = age < 0.5 ? '#4f8' : age < 0.8 ? '#f80' : '#f44';
+  ageFill.style.background = age < 0.5 ? C('accent') : age < 0.8 ? C('warn') : C('temp');
 }
 
 function setMetric(id, value, unit) {
   const el = document.getElementById(id);
-  if (el) el.innerHTML = `${value}<span style="font-size:0.4em;color:#555;margin-left:4px">${unit}</span>`;
+  if (el) el.innerHTML = `${value}<span style="font-size:0.4em;color:var(--text-dim);margin-left:4px">${unit}</span>`;
 }
 
 function setDelta(id, delta, threshold, suffix = '') {
@@ -1157,10 +1224,24 @@ function initParticles() {
 
 function getDataColor() {
   const c = raw.cur;
-  const r = c.bz < 0 ? 160 + clamp(Math.abs(c.bz), 0, 20) * 5 : 50;
-  const g = c.bz >= 0 ? 160 + clamp(c.bz, 0, 20) * 5 : 50;
-  const b = 80 + norm(c.bt, 0, 25) * 140;
-  return { r, g, b };
+  if (lightMode) {
+    // Monotone ink: warm dark browns/oranges
+    // Bz negative = darker burnt orange, positive = muted olive
+    const bzAbs = clamp(Math.abs(c.bz), 0, 20);
+    const btN = norm(c.bt, 0, 25);
+    if (c.bz < 0) {
+      // Burnt orange to dark brown
+      return { r: 160 + bzAbs * 3, g: 70 + bzAbs, b: 30 + btN * 20 };
+    } else {
+      // Muted olive to warm gray
+      return { r: 100 + bzAbs * 2, g: 90 + bzAbs * 2, b: 50 + btN * 20 };
+    }
+  } else {
+    const r = c.bz < 0 ? 160 + clamp(Math.abs(c.bz), 0, 20) * 5 : 50;
+    const g = c.bz >= 0 ? 160 + clamp(c.bz, 0, 20) * 5 : 50;
+    const b = 80 + norm(c.bt, 0, 25) * 140;
+    return { r, g, b };
+  }
 }
 
 // --- PARTICLE FIELD ---
@@ -1172,7 +1253,11 @@ function drawParticleField(dt) {
 
   const c = raw.cur;
   const fadeAlpha = 0.025 + norm(raw.kp, 0, 9) * 0.06;
-  ctx.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
+  if (lightMode) {
+    ctx.fillStyle = `rgba(243, 240, 235, ${fadeAlpha + 0.01})`;
+  } else {
+    ctx.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
+  }
   ctx.fillRect(0, 0, w, h);
 
   const windForce = norm(c.speed, 250, 800);
@@ -1191,14 +1276,21 @@ function drawParticleField(dt) {
     if (p.y < 0) p.y = h;
 
     const brightness = p.alpha + densScale * 0.35;
-    ctx.fillStyle = `rgba(${col.r}, ${col.g}, ${col.b}, ${brightness})`;
+    ctx.fillStyle = `rgba(${col.r}, ${col.g}, ${col.b}, ${lightMode ? brightness * 0.6 : brightness})`;
     const sz = p.size * (1 + windForce * 0.6);
-    ctx.fillRect(p.x, p.y, sz, sz);
+    if (lightMode) {
+      // Soft round dots in light mode
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, sz * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillRect(p.x, p.y, sz, sz);
+    }
   }
 
   // Scan line
   const scanX = raw.scanPos * w;
-  ctx.strokeStyle = `rgba(${col.r}, ${col.g}, ${col.b}, 0.12)`;
+  ctx.strokeStyle = `rgba(${col.r}, ${col.g}, ${col.b}, ${lightMode ? 0.08 : 0.12})`;
   ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(scanX, 0); ctx.lineTo(scanX, h); ctx.stroke();
 
@@ -1248,7 +1340,7 @@ function drawPolar() {
   const col = getDataColor();
 
   // Grid rings
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.strokeStyle = lightMode ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 1;
   for (let r = 0.25; r <= 1; r += 0.25) {
     ctx.beginPath();
@@ -1285,7 +1377,7 @@ function drawPolar() {
 
     // Bz as vertical bar from center
     const bzH = (raw.cur.bz / 25) * radius;
-    ctx.strokeStyle = raw.cur.bz >= 0 ? '#4f8' : '#f55';
+    ctx.strokeStyle = raw.cur.bz >= 0 ? C('bz_n') : C('bz_s');
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
@@ -1294,7 +1386,7 @@ function drawPolar() {
   }
 
   // Labels
-  ctx.fillStyle = '#444';
+  ctx.fillStyle = lightMode ? '#999' : '#444';
   ctx.font = '9px IBM Plex Mono';
   ctx.textAlign = 'center';
   ctx.fillText('BY+', cx + radius + 15, cy + 3);
@@ -1321,7 +1413,7 @@ function drawRawSignal() {
   const col = getDataColor();
 
   // Center line
-  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.strokeStyle = lightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.03)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
@@ -1353,21 +1445,78 @@ function drawImpulses(dt) {
   for (let i = impulseFlashes.length - 1; i >= 0; i--) {
     const f = impulseFlashes[i];
     f.age += dt;
-    const life = clamp(1 - f.age / 1.5, 0, 1);
+    const life = clamp(1 - f.age / (lightMode ? 2.5 : 1.5), 0, 1);
     if (life <= 0) { impulseFlashes.splice(i, 1); continue; }
 
-    const r = f.size * (1 + f.age * 0.5);
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = f.color;
-    ctx.globalAlpha = f.alpha * life * 0.3;
-    ctx.fill();
+    const r = f.size * (1 + f.age * (lightMode ? 0.3 : 0.5));
 
-    // Inner bright core
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, r * 0.2, 0, Math.PI * 2);
-    ctx.globalAlpha = f.alpha * life * 0.6;
-    ctx.fill();
+    if (lightMode) {
+      // Inky organic blobs — multiple overlapping irregular shapes
+      const inkColor = f.color || '#c85a20';
+      ctx.fillStyle = inkColor;
+
+      // Use seed from position for consistent blob shape
+      const seed = (f.x * 7 + f.y * 13) % 100;
+
+      // Main blob — irregular with bezier curves
+      ctx.globalAlpha = f.alpha * life * 0.12;
+      ctx.beginPath();
+      const lobes = 5 + (seed % 4);
+      for (let l = 0; l < lobes; l++) {
+        const angle = (l / lobes) * Math.PI * 2;
+        const nextAngle = ((l + 1) / lobes) * Math.PI * 2;
+        const wobble = 0.6 + ((seed * (l + 1) * 17) % 100) / 100 * 0.8;
+        const px = f.x + Math.cos(angle) * r * wobble;
+        const py = f.y + Math.sin(angle) * r * wobble;
+        const cpx = f.x + Math.cos((angle + nextAngle) / 2) * r * (wobble + 0.3);
+        const cpy = f.y + Math.sin((angle + nextAngle) / 2) * r * (wobble + 0.3);
+        if (l === 0) ctx.moveTo(px, py);
+        else ctx.quadraticCurveTo(cpx, cpy, px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Smaller satellite blobs — splatter
+      for (let s = 0; s < 3; s++) {
+        const sAngle = ((seed + s * 40) % 360) * Math.PI / 180;
+        const sDist = r * (0.7 + s * 0.3);
+        const sR = r * (0.15 - s * 0.03);
+        ctx.globalAlpha = f.alpha * life * (0.15 - s * 0.03);
+        ctx.beginPath();
+        // Slight oval for organic feel
+        ctx.ellipse(
+          f.x + Math.cos(sAngle) * sDist,
+          f.y + Math.sin(sAngle) * sDist,
+          sR, sR * (0.6 + Math.random() * 0.4),
+          sAngle, 0, Math.PI * 2
+        );
+        ctx.fill();
+      }
+
+      // Soft feathered edge
+      const gradient = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r * 1.2);
+      gradient.addColorStop(0, inkColor);
+      gradient.addColorStop(0.4, inkColor);
+      gradient.addColorStop(1, 'transparent');
+      ctx.fillStyle = gradient;
+      ctx.globalAlpha = f.alpha * life * 0.06;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, r * 1.2, 0, Math.PI * 2);
+      ctx.fill();
+
+    } else {
+      // Dark mode — original clean circles
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = f.color;
+      ctx.globalAlpha = f.alpha * life * 0.3;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, r * 0.2, 0, Math.PI * 2);
+      ctx.globalAlpha = f.alpha * life * 0.6;
+      ctx.fill();
+    }
   }
 
   ctx.globalAlpha = 1;
@@ -1507,23 +1656,43 @@ document.getElementById('slScanRate').addEventListener('input', e => {
 });
 
 // View modes
-document.querySelectorAll('.vm-btn').forEach(btn => {
+document.querySelectorAll('.vm-btn[data-mode]').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.vm-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.vm-btn[data-mode]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     viewMode = btn.dataset.mode;
-    // Clear overlay canvas on mode switch
     specCtx.save(); specCtx.scale(DPR, DPR);
     specCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     specCtx.restore();
-    // Clear field if switching to prevent stale frame
     if (viewMode === 'minimal') {
       fieldCtx.save(); fieldCtx.scale(DPR, DPR);
-      fieldCtx.fillStyle = '#000';
+      fieldCtx.fillStyle = lightMode ? '#f3f0eb' : '#000';
       fieldCtx.fillRect(0, 0, window.innerWidth, window.innerHeight);
       fieldCtx.restore();
     }
   });
+});
+
+// Theme toggle
+document.getElementById('themeToggle').addEventListener('click', () => {
+  lightMode = !lightMode;
+  document.body.classList.toggle('light', lightMode);
+  document.getElementById('themeToggle').textContent = lightMode ? 'DARK' : 'LIGHT';
+  document.getElementById('themeToggle').classList.toggle('active', lightMode);
+
+  // Clear canvases to new bg
+  const bg = lightMode ? '#f3f0eb' : '#000';
+  fieldCtx.save(); fieldCtx.scale(DPR, DPR);
+  fieldCtx.fillStyle = bg;
+  fieldCtx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+  fieldCtx.restore();
+
+  // Re-apply bar colors from CSS vars
+  document.getElementById('bSpeed').style.background = 'var(--bar-speed)';
+  document.getElementById('bDensity').style.background = 'var(--bar-density)';
+  document.getElementById('bTemp').style.background = 'var(--bar-temp)';
+  document.getElementById('bBt').style.background = 'var(--bar-bt)';
+  document.getElementById('bKp').style.background = 'var(--bar-speed)';
 });
 </script>
 </body>
