@@ -1,0 +1,1491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heliosphere — Raw Solar Wind Sonification</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #000;
+    color: #aaa;
+    font-family: 'IBM Plex Mono', monospace;
+    height: 100vh;
+    overflow: hidden;
+    cursor: crosshair;
+    user-select: none;
+  }
+
+  /* --- LAYERED CANVASES --- */
+  canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
+  canvas#fieldCanvas { z-index: 1; }
+  canvas#spectrumCanvas { z-index: 2; pointer-events: none; }
+  canvas#impulseCanvas { z-index: 3; pointer-events: none; }
+
+  /* --- HUD --- */
+  .hud {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    padding: 28px 32px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr auto;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .hud-tl { grid-column: 1; grid-row: 1; }
+  .hud-tr { grid-column: 2; grid-row: 1; text-align: right; }
+  .hud-bl { grid-column: 1; grid-row: 3; align-self: end; }
+  .hud-br { grid-column: 2; grid-row: 3; align-self: end; text-align: right; }
+
+  .metric {
+    margin-bottom: 16px;
+  }
+
+  .metric .label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: #555;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .metric .value {
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: #ddd;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric .value.large {
+    font-size: 48px;
+  }
+
+  .metric .delta {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    margin-top: 3px;
+    transition: color 0.3s;
+  }
+
+  .delta.up { color: #4f8; }
+  .delta.down { color: #f55; }
+  .delta.flat { color: #444; }
+
+  .metric .range {
+    font-size: 9px;
+    color: #333;
+    margin-top: 2px;
+    letter-spacing: 0.06em;
+  }
+
+  .metric .bar-track {
+    width: 160px;
+    height: 3px;
+    background: #181818;
+    margin-top: 6px;
+    position: relative;
+    border-radius: 1px;
+  }
+
+  .hud-tr .bar-track {
+    margin-left: auto;
+  }
+
+  .metric .bar-fill {
+    height: 100%;
+    border-radius: 1px;
+    transition: width 0.5s ease, background 0.5s;
+    position: absolute;
+    top: 0; left: 0;
+  }
+
+  .metric .bar-marker {
+    width: 2px;
+    height: 7px;
+    position: absolute;
+    top: -2px;
+    background: #fff;
+    border-radius: 1px;
+    transition: left 0.5s ease;
+  }
+
+  /* --- STORM BANNER --- */
+  .storm-banner {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: transparent;
+    z-index: 20;
+    transition: background 0.5s;
+  }
+
+  .storm-banner.g1 { background: #fc0; }
+  .storm-banner.g2 { background: #f80; }
+  .storm-banner.g3 { background: #f40; }
+  .storm-banner.g4 { background: #f00; }
+  .storm-banner.g5 { background: #f0f; }
+
+  /* --- CENTER --- */
+  .center-ui {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    pointer-events: auto;
+  }
+
+  .start-btn {
+    padding: 14px 40px;
+    border: 1px solid #333;
+    border-radius: 3px;
+    background: transparent;
+    color: #999;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+
+  .start-btn:hover { border-color: #888; color: #eee; }
+  .start-btn.active { border-color: #4f8; color: #4f8; }
+
+  .status-line {
+    font-size: 9px;
+    color: #333;
+    letter-spacing: 0.08em;
+  }
+
+  /* --- VIEW MODES --- */
+  .view-modes {
+    position: fixed;
+    bottom: 28px;
+    right: 32px;
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-end;
+    pointer-events: auto;
+  }
+
+  .view-modes label {
+    font-size: 9px;
+    color: #444;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .vm-btn {
+    padding: 6px 14px;
+    border: 1px solid #222;
+    border-radius: 2px;
+    background: transparent;
+    color: #555;
+    font-family: inherit;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+    text-align: right;
+  }
+
+  .vm-btn:hover { border-color: #444; color: #999; }
+  .vm-btn.active { border-color: #666; color: #ccc; }
+
+  /* --- SLIDERS --- */
+  .controls-left {
+    position: fixed;
+    bottom: 28px;
+    left: 32px;
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: auto;
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .slider-row label {
+    font-size: 9px;
+    color: #555;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    width: 60px;
+  }
+
+  .slider-row span {
+    font-size: 9px;
+    color: #666;
+    width: 32px;
+    text-align: right;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100px;
+    height: 2px;
+    background: #222;
+    outline: none;
+    border-radius: 1px;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #888;
+    cursor: pointer;
+  }
+
+  /* --- EVENT FLASH --- */
+  .event-flash {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    opacity: 0;
+    z-index: 25;
+    pointer-events: none;
+    text-align: center;
+    line-height: 1.6;
+    text-shadow: 0 0 30px currentColor;
+  }
+
+  .event-flash.show { animation: flashIn 4s forwards; }
+  @keyframes flashIn {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+    8% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    60% { opacity: 0.7; }
+    100% { opacity: 0; }
+  }
+
+  /* --- DATA AGE INDICATOR --- */
+  .data-age {
+    position: fixed;
+    top: 50%;
+    right: 32px;
+    transform: translateY(-50%);
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .age-bar {
+    width: 3px;
+    height: 120px;
+    background: #111;
+    border-radius: 2px;
+    position: relative;
+  }
+
+  .age-fill {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    border-radius: 2px;
+    transition: height 1s, background 1s;
+  }
+
+  .age-label {
+    font-size: 8px;
+    color: #333;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    writing-mode: vertical-rl;
+    margin-right: 6px;
+    position: absolute;
+    right: 10px;
+    top: 0;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="fieldCanvas"></canvas>
+<canvas id="spectrumCanvas"></canvas>
+<canvas id="impulseCanvas"></canvas>
+
+<div class="storm-banner" id="stormBanner"></div>
+
+<div class="hud">
+  <!-- TOP LEFT: Plasma -->
+  <div class="hud-tl">
+    <div class="metric">
+      <div class="label">Solar Wind</div>
+      <div class="value large" id="vSpeed">—</div>
+      <div class="delta flat" id="dSpeed">—</div>
+      <div class="range" id="rSpeed">2h range: —</div>
+      <div class="bar-track"><div class="bar-fill" id="bSpeed" style="background:#f80;width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="label">Proton Density</div>
+      <div class="value" id="vDensity">—</div>
+      <div class="delta flat" id="dDensity">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bDensity" style="background:#48f;width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="label">Temperature</div>
+      <div class="value" id="vTemp">—</div>
+      <div class="delta flat" id="dTemp">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bTemp" style="background:#f48;width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- TOP RIGHT: Magnetic -->
+  <div class="hud-tr">
+    <div class="metric">
+      <div class="label">IMF Bz</div>
+      <div class="value large" id="vBz">—</div>
+      <div class="delta flat" id="dBz">—</div>
+      <div class="range" id="rBz">2h range: —</div>
+      <div class="bar-track"><div class="bar-fill" id="bBz" style="background:#4f8;width:50%"></div><div class="bar-marker" id="mBz" style="left:50%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="label">IMF Bt</div>
+      <div class="value" id="vBt">—</div>
+      <div class="delta flat" id="dBt">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bBt" style="background:#f4f;width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="label">Kp Index</div>
+      <div class="value" id="vKp">—</div>
+      <div class="delta flat" id="dKp">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bKp" style="background:#f80;width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- BOTTOM LEFT: Scales -->
+  <div class="hud-bl">
+    <div class="metric">
+      <div class="label">NOAA Storm Scale</div>
+      <div class="value" id="vScales" style="font-size:18px">—</div>
+    </div>
+    <div class="metric">
+      <div class="label">Scan Position</div>
+      <div class="value" id="vScan" style="font-size:14px;color:#555">0%</div>
+    </div>
+  </div>
+
+  <!-- BOTTOM RIGHT: Time -->
+  <div class="hud-br">
+    <div class="metric">
+      <div class="label">UTC</div>
+      <div class="value" id="vTime" style="font-size:18px">—</div>
+    </div>
+    <div class="metric">
+      <div class="label">Data Points</div>
+      <div class="value" id="vSamples" style="font-size:14px;color:#555">—</div>
+    </div>
+  </div>
+</div>
+
+<div class="center-ui">
+  <button class="start-btn" id="startBtn">LISTEN</button>
+  <div class="status-line" id="statusLine">NOAA SWPC REAL-TIME FEED · L1 LAGRANGE POINT</div>
+</div>
+
+<div class="event-flash" id="eventFlash"></div>
+
+<div class="data-age">
+  <div class="age-label">FRESHNESS</div>
+  <div class="age-bar"><div class="age-fill" id="ageFill" style="height:100%;background:#4f8"></div></div>
+</div>
+
+<div class="view-modes">
+  <label>Visual</label>
+  <button class="vm-btn active" data-mode="field">PARTICLE FIELD</button>
+  <button class="vm-btn" data-mode="spectrum">SPECTRUM</button>
+  <button class="vm-btn" data-mode="polar">POLAR IMF</button>
+  <button class="vm-btn" data-mode="raw">RAW SIGNAL</button>
+  <button class="vm-btn" data-mode="minimal">MINIMAL</button>
+</div>
+
+<div class="controls-left">
+  <div class="slider-row">
+    <label>Vol</label>
+    <input type="range" id="slVolume" min="0" max="100" value="60">
+    <span id="sVolume">60</span>
+  </div>
+  <div class="slider-row">
+    <label>Sens</label>
+    <input type="range" id="slSensitivity" min="1" max="100" value="75">
+    <span id="sSensitivity">75</span>
+  </div>
+  <div class="slider-row">
+    <label>Scan</label>
+    <input type="range" id="slScanRate" min="10" max="300" value="90">
+    <span id="sScanRate">90s</span>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// HELIOSPHERE v2 — Raw solar wind sonification
+// No musical constructs. Data IS the sound.
+// ============================================================
+
+const SWPC = 'https://services.swpc.noaa.gov';
+
+let audioCtx, masterGain, analyser;
+let isRunning = false;
+let sensitivity = 0.75;
+let scanRate = 90; // seconds per full sweep
+let viewMode = 'field';
+
+// Persistent sound sources
+let drones = {};
+let noiseNode;
+let activePadOscs = [];
+
+// Data
+let raw = {
+  speed: [], density: [], temp: [],
+  bz: [], bt: [], bx: [], by: [],
+  kp: 0, prevKp: 0,
+  scales: { R: 0, S: 0, G: 0 },
+  cur: { speed: 400, density: 5, temp: 150000, bz: 0, bt: 5, bx: 0, by: 0 },
+  prev: { speed: 400, density: 5, temp: 150000, bz: 0, bt: 5, bx: 0, by: 0 },
+  scanPos: 0,
+  lastFetchTime: 0,
+  fetchCount: 0,
+};
+
+// Impulse flash queue for visual feedback
+let impulseFlashes = []; // { x, y, size, alpha, color, age }
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function norm(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
+
+// ============================================================
+// AUDIO ENGINE
+// ============================================================
+
+function initAudio() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.6;
+
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 4096;
+  analyser.smoothingTimeConstant = 0.82;
+
+  masterGain.connect(analyser);
+  analyser.connect(audioCtx.destination);
+
+  // DRONE 1: Fundamental — speed → frequency
+  drones.fundamental = createDrone('sine', 80, 0.07);
+
+  // DRONE 2: Sub octave
+  drones.sub = createDrone('sine', 40, 0.05);
+
+  // DRONE 3: Detuned pair — Bz controls spread
+  drones.detA = createDrone('triangle', 80, 0.025);
+  drones.detB = createDrone('triangle', 80, 0.025);
+
+  // DRONE 4: Harmonic series — Bt controls levels
+  drones.harmonics = [];
+  for (let h = 2; h <= 10; h++) {
+    const hd = createDrone('sine', 80 * h, 0.0);
+    hd.harmonic = h;
+    drones.harmonics.push(hd);
+  }
+
+  // DRONE 5: Temperature resonance — filtered square wave
+  drones.tempRes = createDrone('square', 80, 0.0);
+  drones.tempRes.filter.type = 'bandpass';
+  drones.tempRes.filter.Q.value = 12;
+
+  // Noise layer
+  noiseNode = createContinuousNoise();
+
+  // Waveshaper
+  drones.shaper = audioCtx.createWaveShaper();
+  drones.shaper.oversample = '4x';
+  setDistortion(0);
+}
+
+function createDrone(type, freq, vol) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  const panner = audioCtx.createStereoPanner();
+  const filter = audioCtx.createBiquadFilter();
+
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.value = vol;
+  panner.pan.value = 0;
+  filter.type = 'lowpass';
+  filter.frequency.value = 2000;
+  filter.Q.value = 1;
+
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(panner);
+  panner.connect(masterGain);
+  osc.start();
+
+  return { osc, gain, panner, filter };
+}
+
+function createContinuousNoise() {
+  const bufLen = audioCtx.sampleRate * 4;
+  const buf = audioCtx.createBuffer(2, bufLen, audioCtx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < bufLen; i++) {
+      d[i] = (Math.random() * 2 - 1) * 0.3;
+      if (Math.random() < 0.003) d[i] = (Math.random() > 0.5 ? 1 : -1) * 0.9; // crackle
+    }
+  }
+
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+
+  const bandpass = audioCtx.createBiquadFilter();
+  bandpass.type = 'bandpass';
+  bandpass.frequency.value = 2000;
+  bandpass.Q.value = 2;
+
+  const hipass = audioCtx.createBiquadFilter();
+  hipass.type = 'highpass';
+  hipass.frequency.value = 400;
+
+  const gain = audioCtx.createGain();
+  gain.gain.value = 0.02;
+
+  const panner = audioCtx.createStereoPanner();
+
+  src.connect(bandpass);
+  bandpass.connect(hipass);
+  hipass.connect(gain);
+  gain.connect(panner);
+  panner.connect(masterGain);
+  src.start();
+
+  return { src, bandpass, hipass, gain, panner };
+}
+
+function setDistortion(amount) {
+  const k = amount * 200;
+  const n = 256;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = ((3 + k) * x * 20 * (Math.PI / 180)) / (Math.PI + k * Math.abs(x));
+  }
+  drones.shaper.curve = curve;
+}
+
+// ============================================================
+// CONTINUOUS MODULATION
+// ============================================================
+
+function modulateAudio() {
+  if (!audioCtx || !isRunning) return;
+
+  const c = raw.cur;
+  const now = audioCtx.currentTime;
+  const r = 0.08;
+  const s = sensitivity;
+
+  // SPEED → Drone pitch (35–220 Hz)
+  const baseFreq = 35 + norm(c.speed, 250, 850) * 185;
+  drones.fundamental.osc.frequency.linearRampToValueAtTime(baseFreq, now + r);
+  drones.sub.osc.frequency.linearRampToValueAtTime(baseFreq * 0.5, now + r);
+
+  // BZ → Detuning
+  const bzDetune = c.bz * s * 4;
+  drones.detA.osc.frequency.linearRampToValueAtTime(baseFreq + bzDetune * 0.5, now + r);
+  drones.detB.osc.frequency.linearRampToValueAtTime(baseFreq - bzDetune * 0.5, now + r);
+  const bzIntensity = Math.abs(c.bz) / 20;
+  drones.detA.gain.gain.linearRampToValueAtTime(0.015 + bzIntensity * 0.06 * s, now + r);
+  drones.detB.gain.gain.linearRampToValueAtTime(0.015 + bzIntensity * 0.06 * s, now + r);
+
+  // BT → Harmonics
+  const btN = norm(c.bt, 0, 30);
+  drones.harmonics.forEach(hd => {
+    const level = btN * (0.035 / hd.harmonic) * s;
+    hd.gain.gain.linearRampToValueAtTime(level, now + r);
+    hd.osc.frequency.linearRampToValueAtTime(baseFreq * hd.harmonic, now + r);
+  });
+
+  // TEMPERATURE → Filter + resonance drone
+  const tempN = norm(c.temp, 50000, 500000);
+  const fFreq = 150 + tempN * 5000 * s;
+  const fQ = 0.5 + tempN * 10 * s;
+  drones.fundamental.filter.frequency.linearRampToValueAtTime(fFreq, now + r);
+  drones.fundamental.filter.Q.linearRampToValueAtTime(fQ, now + r);
+  drones.sub.filter.frequency.linearRampToValueAtTime(fFreq * 0.5, now + r);
+  // Temp resonance — gets louder when temp is extreme
+  drones.tempRes.osc.frequency.linearRampToValueAtTime(baseFreq * 3, now + r);
+  drones.tempRes.filter.frequency.linearRampToValueAtTime(fFreq * 1.5, now + r);
+  drones.tempRes.gain.gain.linearRampToValueAtTime(tempN * 0.02 * s, now + r);
+
+  // DENSITY → Noise
+  const densN = norm(c.density, 0, 30);
+  noiseNode.gain.gain.linearRampToValueAtTime(0.004 + densN * 0.07 * s, now + r);
+  noiseNode.bandpass.frequency.linearRampToValueAtTime(600 + densN * 9000, now + r);
+  noiseNode.bandpass.Q.linearRampToValueAtTime(0.5 + (1 - densN) * 8, now + r);
+
+  // BX, BY → Stereo
+  const panX = clamp(c.by / 15, -1, 1);
+  drones.fundamental.panner.pan.linearRampToValueAtTime(panX * 0.4, now + r);
+  noiseNode.panner.pan.linearRampToValueAtTime(-panX * 0.5, now + r);
+  drones.detA.panner.pan.linearRampToValueAtTime(clamp(panX + 0.4, -1, 1), now + r);
+  drones.detB.panner.pan.linearRampToValueAtTime(clamp(panX - 0.4, -1, 1), now + r);
+
+  // KP → Distortion
+  const kpN = norm(raw.kp, 0, 9);
+  setDistortion(kpN * s);
+  drones.fundamental.gain.gain.linearRampToValueAtTime(0.05 + (kpN > 0.5 ? (kpN - 0.5) * 0.1 : 0), now + r);
+
+  // DELTA DETECTION
+  const speedDelta = Math.abs(c.speed - raw.prev.speed);
+  const bzDelta = Math.abs(c.bz - raw.prev.bz);
+  const densDelta = Math.abs(c.density - raw.prev.density);
+  const btDelta = Math.abs(c.bt - raw.prev.bt);
+  const tempDelta = Math.abs(c.temp - raw.prev.temp);
+
+  const threshold = 1.05 - s;
+
+  if (speedDelta > 1.5 * threshold) fireImpulse('speed', speedDelta);
+  if (bzDelta > 0.2 * threshold) fireImpulse('bz', bzDelta);
+  if (densDelta > 0.3 * threshold) fireImpulse('density', densDelta);
+  if (btDelta > 0.3 * threshold) fireImpulse('bt', btDelta);
+  if (tempDelta > 5000 * threshold) fireImpulse('temp', tempDelta / 50000);
+}
+
+function fireImpulse(type, mag) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const m = clamp(mag / 15, 0.05, 1);
+  const s = sensitivity;
+
+  // Visual flash
+  const cx = fieldCanvas.width / (window.devicePixelRatio || 1);
+  const cy = fieldCanvas.height / (window.devicePixelRatio || 1);
+  const colors = { speed: '#f80', bz: '#4f8', density: '#48f', bt: '#f4f', temp: '#f44' };
+
+  impulseFlashes.push({
+    x: type === 'bz' ? cx * 0.8 : type === 'speed' ? cx * 0.2 : cx * 0.5 + (Math.random() - 0.5) * cx * 0.4,
+    y: cy * 0.3 + Math.random() * cy * 0.4,
+    size: 20 + m * 120,
+    alpha: 0.3 + m * 0.5,
+    color: colors[type] || '#fff',
+    age: 0,
+  });
+
+  switch (type) {
+    case 'speed': {
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      const filt = audioCtx.createBiquadFilter();
+      osc.type = 'sine';
+      osc.frequency.value = 50 + m * 100;
+      filt.type = 'lowpass'; filt.frequency.value = 250; filt.Q.value = 10;
+      env.gain.setValueAtTime(m * 0.09 * s, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.08 + m * 0.25);
+      osc.connect(filt); filt.connect(env); env.connect(masterGain);
+      osc.start(now); osc.stop(now + 0.5);
+      break;
+    }
+    case 'bz': {
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 200 + norm(raw.cur.bz, -20, 20) * 2500;
+      env.gain.setValueAtTime(m * 0.06 * s, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.04 + m * 0.18);
+      osc.connect(env); env.connect(masterGain);
+      osc.start(now); osc.stop(now + 0.35);
+      break;
+    }
+    case 'density': {
+      const len = 0.015 + m * 0.06;
+      const bufSize = Math.max(1, Math.floor(audioCtx.sampleRate * len));
+      const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) d[i] = Math.random() < 0.35 ? (Math.random() * 2 - 1) : 0;
+      const src = audioCtx.createBufferSource(); src.buffer = buf;
+      const env = audioCtx.createGain();
+      env.gain.setValueAtTime(m * 0.07 * s, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + len);
+      const pan = audioCtx.createStereoPanner();
+      pan.pan.value = (Math.random() - 0.5) * 1.6;
+      src.connect(env); env.connect(pan); pan.connect(masterGain);
+      src.start(now); src.stop(now + len + 0.01);
+      break;
+    }
+    case 'bt': {
+      const osc = audioCtx.createOscillator();
+      const osc2 = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      osc.type = 'sine'; osc2.type = 'sine';
+      osc.frequency.value = 400 + m * 800;
+      osc2.frequency.value = osc.frequency.value * 1.5;
+      env.gain.setValueAtTime(m * 0.04 * s, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.06 + m * 0.12);
+      osc.connect(env); osc2.connect(env); env.connect(masterGain);
+      osc.start(now); osc2.start(now);
+      osc.stop(now + 0.3); osc2.stop(now + 0.3);
+      break;
+    }
+    case 'temp': {
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      const filt = audioCtx.createBiquadFilter();
+      osc.type = 'sawtooth';
+      osc.frequency.value = 1000 + m * 3000;
+      filt.type = 'bandpass'; filt.frequency.value = 2000 + m * 4000; filt.Q.value = 8;
+      env.gain.setValueAtTime(m * 0.03 * s, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.03 + m * 0.08);
+      osc.connect(filt); filt.connect(env); env.connect(masterGain);
+      osc.start(now); osc.stop(now + 0.2);
+      break;
+    }
+  }
+}
+
+// Major events
+function triggerEvent(type, detail) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  showEventFlash(type, detail);
+
+  // Big visual burst
+  const cx = fieldCanvas.width / (window.devicePixelRatio || 1);
+  const cy = fieldCanvas.height / (window.devicePixelRatio || 1);
+  for (let i = 0; i < 8; i++) {
+    impulseFlashes.push({
+      x: cx / 2 + (Math.random() - 0.5) * cx * 0.6,
+      y: cy / 2 + (Math.random() - 0.5) * cy * 0.4,
+      size: 60 + Math.random() * 200,
+      alpha: 0.2 + Math.random() * 0.3,
+      color: type === 'bz_flip' ? (detail.dir > 0 ? '#4f8' : '#f44') : type === 'shock' ? '#f80' : '#f4f',
+      age: 0,
+    });
+  }
+
+  switch (type) {
+    case 'bz_flip': {
+      const dir = detail.dir;
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      const filt = audioCtx.createBiquadFilter();
+      osc.type = 'sawtooth';
+      filt.type = 'bandpass'; filt.Q.value = 6;
+      if (dir > 0) {
+        osc.frequency.setValueAtTime(35, now);
+        osc.frequency.exponentialRampToValueAtTime(700, now + 3);
+        filt.frequency.setValueAtTime(80, now);
+        filt.frequency.exponentialRampToValueAtTime(1800, now + 3);
+      } else {
+        osc.frequency.setValueAtTime(700, now);
+        osc.frequency.exponentialRampToValueAtTime(25, now + 4);
+        filt.frequency.setValueAtTime(1800, now);
+        filt.frequency.exponentialRampToValueAtTime(50, now + 4);
+      }
+      env.gain.setValueAtTime(0.09, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 4);
+      osc.connect(filt); filt.connect(env); env.connect(masterGain);
+      osc.start(now); osc.stop(now + 4.5);
+      break;
+    }
+    case 'shock': {
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.exponentialRampToValueAtTime(12, now + 2);
+      env.gain.setValueAtTime(0.22, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 2);
+      osc.connect(env); env.connect(masterGain);
+      osc.start(now); osc.stop(now + 2.5);
+      // Noise burst
+      const len = 0.6;
+      const bufSize = Math.floor(audioCtx.sampleRate * len);
+      const buf = audioCtx.createBuffer(2, bufSize, audioCtx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = buf.getChannelData(ch);
+        for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 1.5);
+      }
+      const src = audioCtx.createBufferSource(); src.buffer = buf;
+      const nEnv = audioCtx.createGain(); nEnv.gain.value = 0.14;
+      src.connect(nEnv); nEnv.connect(masterGain);
+      src.start(now); src.stop(now + len);
+      break;
+    }
+    case 'storm': {
+      const osc = audioCtx.createOscillator();
+      const osc2 = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      osc.type = 'sawtooth'; osc2.type = 'square';
+      osc.frequency.value = 45; osc2.frequency.value = 45.7;
+      env.gain.setValueAtTime(0.001, now);
+      env.gain.linearRampToValueAtTime(0.08, now + 2.5);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 6);
+      osc.connect(env); osc2.connect(env); env.connect(masterGain);
+      osc.start(now); osc2.start(now);
+      osc.stop(now + 6.5); osc2.stop(now + 6.5);
+      break;
+    }
+    case 'density_spike': {
+      for (let i = 0; i < 12; i++) {
+        setTimeout(() => {
+          const len = 0.03 + Math.random() * 0.04;
+          const bufSize = Math.max(1, Math.floor(audioCtx.sampleRate * len));
+          const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+          const d = buf.getChannelData(0);
+          for (let j = 0; j < bufSize; j++) d[j] = Math.random() < 0.4 ? (Math.random() * 2 - 1) : 0;
+          const src = audioCtx.createBufferSource(); src.buffer = buf;
+          const env = audioCtx.createGain();
+          env.gain.setValueAtTime(0.1, audioCtx.currentTime);
+          env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + len);
+          const pan = audioCtx.createStereoPanner();
+          pan.pan.value = (Math.random() - 0.5) * 1.8;
+          src.connect(env); env.connect(pan); pan.connect(masterGain);
+          src.start(); src.stop(audioCtx.currentTime + len + 0.01);
+        }, i * 30);
+      }
+      break;
+    }
+  }
+}
+
+function showEventFlash(type, detail) {
+  const el = document.getElementById('eventFlash');
+  const labels = {
+    bz_flip: detail.dir > 0 ? 'IMF FLIP NORTH\nGEOEFFECTIVE → QUIET' : 'IMF FLIP SOUTH\nGEOEFFECTIVE COUPLING',
+    shock: `INTERPLANETARY SHOCK\n+${Math.round(detail.delta)} KM/S`,
+    storm: `GEOMAGNETIC STORM\nKP ${detail.kp}`,
+    density_spike: `COMPRESSION REGION\nDENSITY SURGE`,
+  };
+  const colors = {
+    bz_flip: detail.dir > 0 ? '#4f8' : '#f44',
+    shock: '#f80',
+    storm: '#f4f',
+    density_spike: '#48f',
+  };
+  el.textContent = labels[type] || type.toUpperCase();
+  el.style.color = colors[type] || '#fff';
+  el.className = 'event-flash show';
+  setTimeout(() => el.className = 'event-flash', 4000);
+}
+
+// ============================================================
+// DATA FETCHING
+// ============================================================
+
+async function fetchAllData() {
+  try {
+    const [plasmaRes, magRes, kpRes, scalesRes] = await Promise.all([
+      fetch(`${SWPC}/products/solar-wind/plasma-2-hour.json`).then(r => r.json()),
+      fetch(`${SWPC}/products/solar-wind/mag-2-hour.json`).then(r => r.json()),
+      fetch(`${SWPC}/products/noaa-planetary-k-index.json`).then(r => r.json()),
+      fetch(`${SWPC}/products/noaa-scales.json`).then(r => r.json()),
+    ]);
+
+    const prevSpeed = raw.cur.speed;
+    const prevBz = raw.cur.bz;
+    const prevDensity = raw.cur.density;
+
+    // Plasma
+    raw.speed = []; raw.density = []; raw.temp = [];
+    for (let i = 1; i < plasmaRes.length; i++) {
+      const row = plasmaRes[i];
+      const sp = parseFloat(row[2]), dn = parseFloat(row[1]), tm = parseFloat(row[3]);
+      if (!isNaN(sp)) raw.speed.push(sp);
+      if (!isNaN(dn)) raw.density.push(dn);
+      if (!isNaN(tm)) raw.temp.push(tm);
+    }
+
+    // Mag
+    raw.bz = []; raw.bt = []; raw.bx = []; raw.by = [];
+    for (let i = 1; i < magRes.length; i++) {
+      const row = magRes[i];
+      const bx = parseFloat(row[1]), by = parseFloat(row[2]);
+      const bz = parseFloat(row[3]), bt = parseFloat(row[6]);
+      if (!isNaN(bz)) raw.bz.push(bz);
+      if (!isNaN(bt)) raw.bt.push(bt);
+      if (!isNaN(bx)) raw.bx.push(bx);
+      if (!isNaN(by)) raw.by.push(by);
+    }
+
+    // Kp
+    if (kpRes.length > 1) {
+      raw.prevKp = raw.kp;
+      raw.kp = parseFloat(kpRes[kpRes.length - 1][1]) || 0;
+      if (raw.kp - raw.prevKp >= 2 && raw.kp >= 4) {
+        triggerEvent('storm', { kp: raw.kp });
+      }
+    }
+
+    // NOAA Scales (R, S, G)
+    if (scalesRes && scalesRes['0']) {
+      const s = scalesRes['0'];
+      raw.scales.R = s.R ? s.R.Scale : 0;
+      raw.scales.S = s.S ? s.S.Scale : 0;
+      raw.scales.G = s.G ? s.G.Scale : 0;
+    }
+
+    // Set current
+    if (raw.speed.length) raw.cur.speed = raw.speed[raw.speed.length - 1];
+    if (raw.density.length) raw.cur.density = raw.density[raw.density.length - 1];
+    if (raw.temp.length) raw.cur.temp = raw.temp[raw.temp.length - 1];
+    if (raw.bz.length) raw.cur.bz = raw.bz[raw.bz.length - 1];
+    if (raw.bt.length) raw.cur.bt = raw.bt[raw.bt.length - 1];
+    if (raw.bx.length) raw.cur.bx = raw.bx[raw.bx.length - 1];
+    if (raw.by.length) raw.cur.by = raw.by[raw.by.length - 1];
+
+    // Event detection on fetch
+    if (raw.lastFetchTime > 0) {
+      const sDelta = Math.abs(raw.cur.speed - prevSpeed);
+      if (sDelta > 50) triggerEvent('shock', { delta: sDelta });
+      if (prevBz * raw.cur.bz < 0 && Math.abs(raw.cur.bz) > 1.2)
+        triggerEvent('bz_flip', { dir: raw.cur.bz > 0 ? 1 : -1 });
+      if (raw.cur.density > prevDensity * 2.2 && raw.cur.density > 5)
+        triggerEvent('density_spike', {});
+    }
+
+    raw.lastFetchTime = Date.now();
+    raw.fetchCount++;
+    raw.scanPos = 0;
+
+    // Storm banner
+    const G = raw.scales.G;
+    const banner = document.getElementById('stormBanner');
+    banner.className = 'storm-banner' + (G >= 1 ? ` g${Math.min(G, 5)}` : '');
+
+    updateHUD();
+    document.getElementById('statusLine').textContent =
+      `LIVE · FETCH #${raw.fetchCount} · ${raw.speed.length + raw.bz.length} SAMPLES · REFRESH 30S`;
+
+  } catch (e) {
+    document.getElementById('statusLine').textContent = `ERROR: ${e.message}`;
+  }
+}
+
+// ============================================================
+// HISTORY SCAN
+// ============================================================
+
+function advanceScan(dt) {
+  const speed = 1 / scanRate;
+  raw.scanPos = (raw.scanPos + dt * speed) % 1;
+
+  raw.prev.speed = raw.cur.speed;
+  raw.prev.density = raw.cur.density;
+  raw.prev.temp = raw.cur.temp;
+  raw.prev.bz = raw.cur.bz;
+  raw.prev.bt = raw.cur.bt;
+  raw.prev.bx = raw.cur.bx;
+  raw.prev.by = raw.cur.by;
+
+  raw.cur.speed = sampleArr(raw.speed, raw.scanPos);
+  raw.cur.density = sampleArr(raw.density, raw.scanPos);
+  raw.cur.temp = sampleArr(raw.temp, raw.scanPos);
+  raw.cur.bz = sampleArr(raw.bz, raw.scanPos);
+  raw.cur.bt = sampleArr(raw.bt, raw.scanPos);
+  raw.cur.bx = sampleArr(raw.bx, raw.scanPos);
+  raw.cur.by = sampleArr(raw.by, raw.scanPos);
+}
+
+function sampleArr(arr, pos) {
+  if (!arr || arr.length === 0) return 0;
+  if (arr.length === 1) return arr[0];
+  const idx = pos * (arr.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.min(lo + 1, arr.length - 1);
+  return lerp(arr[lo], arr[hi], idx - lo);
+}
+
+// ============================================================
+// HUD
+// ============================================================
+
+function updateHUD() {
+  const c = raw.cur;
+  const p = raw.prev;
+
+  setMetric('vSpeed', Math.round(c.speed), 'km/s');
+  setMetric('vDensity', c.density.toFixed(1), 'p/cm³');
+  setMetric('vTemp', (c.temp / 1000).toFixed(0) + 'k', 'K');
+  setMetric('vBz', c.bz.toFixed(2), 'nT');
+  setMetric('vBt', c.bt.toFixed(1), 'nT');
+  setMetric('vKp', raw.kp.toFixed(1), '');
+
+  // Deltas
+  setDelta('dSpeed', c.speed - p.speed, 1);
+  setDelta('dDensity', c.density - p.density, 0.1);
+  setDelta('dTemp', (c.temp - p.temp) / 1000, 1, 'k');
+  setDelta('dBz', c.bz - p.bz, 0.01);
+  setDelta('dBt', c.bt - p.bt, 0.1);
+  setDelta('dKp', raw.kp - raw.prevKp, 0.1);
+
+  // Bz color
+  document.getElementById('vBz').style.color = c.bz >= 0 ? '#4f8' : '#f55';
+
+  // Bars
+  setBar('bSpeed', norm(c.speed, 250, 800));
+  setBar('bDensity', norm(c.density, 0, 30));
+  setBar('bTemp', norm(c.temp, 50000, 500000));
+  setBar('bBt', norm(c.bt, 0, 30));
+  setBar('bKp', norm(raw.kp, 0, 9));
+
+  // Bz bar (centered, -20 to +20)
+  const bzN = norm(c.bz, -20, 20);
+  document.getElementById('bBz').style.width = `${Math.abs(bzN - 0.5) * 200}%`;
+  document.getElementById('bBz').style.left = bzN < 0.5 ? `${bzN * 100}%` : '50%';
+  document.getElementById('bBz').style.background = c.bz >= 0 ? '#4f8' : '#f55';
+  document.getElementById('mBz').style.left = `${bzN * 100}%`;
+
+  // Ranges
+  if (raw.speed.length > 1) {
+    document.getElementById('rSpeed').textContent = `2h: ${Math.round(Math.min(...raw.speed))}–${Math.round(Math.max(...raw.speed))} km/s`;
+  }
+  if (raw.bz.length > 1) {
+    document.getElementById('rBz').textContent = `2h: ${Math.min(...raw.bz).toFixed(1)} to ${Math.max(...raw.bz).toFixed(1)} nT`;
+  }
+
+  // Scales
+  const { R, S, G } = raw.scales;
+  const scaleStr = `R${R} · S${S} · G${G}`;
+  const scaleEl = document.getElementById('vScales');
+  scaleEl.textContent = scaleStr;
+  scaleEl.style.color = G >= 3 ? '#f44' : G >= 1 ? '#f80' : '#555';
+
+  // Scan
+  document.getElementById('vScan').textContent = `${Math.round(raw.scanPos * 100)}% through 2h window`;
+
+  // Time
+  document.getElementById('vTime').textContent = new Date().toLocaleTimeString('en-US', { hour12: false, timeZone: 'UTC' });
+  document.getElementById('vSamples').textContent = `${raw.speed.length} plasma · ${raw.bz.length} mag`;
+
+  // Data age
+  const age = (Date.now() - raw.lastFetchTime) / 30000; // 0–1 over 30s
+  const ageFill = document.getElementById('ageFill');
+  ageFill.style.height = `${Math.max(0, (1 - age)) * 100}%`;
+  ageFill.style.background = age < 0.5 ? '#4f8' : age < 0.8 ? '#f80' : '#f44';
+}
+
+function setMetric(id, value, unit) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = `${value}<span style="font-size:0.4em;color:#555;margin-left:4px">${unit}</span>`;
+}
+
+function setDelta(id, delta, threshold, suffix = '') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const abs = Math.abs(delta);
+  if (abs < threshold * 0.01) {
+    el.textContent = `— ${suffix}`;
+    el.className = 'delta flat';
+  } else {
+    const sign = delta > 0 ? '+' : '';
+    el.textContent = `${sign}${delta.toFixed(2)}${suffix}`;
+    el.className = `delta ${delta > 0 ? 'up' : 'down'}`;
+  }
+}
+
+function setBar(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.style.width = `${clamp(value, 0, 1) * 100}%`;
+}
+
+// ============================================================
+// VISUALIZATIONS
+// ============================================================
+
+const fieldCanvas = document.getElementById('fieldCanvas');
+const specCanvas = document.getElementById('spectrumCanvas');
+const impulseCanvas = document.getElementById('impulseCanvas');
+const fieldCtx = fieldCanvas.getContext('2d');
+const specCtx = specCanvas.getContext('2d');
+const impulseCtx = impulseCanvas.getContext('2d');
+
+let particles = [];
+const DPR = window.devicePixelRatio || 1;
+
+function resizeCanvases() {
+  [fieldCanvas, specCanvas, impulseCanvas].forEach(c => {
+    c.width = window.innerWidth * DPR;
+    c.height = window.innerHeight * DPR;
+  });
+  initParticles();
+}
+
+function initParticles() {
+  const count = 400;
+  particles = [];
+  const w = window.innerWidth, h = window.innerHeight;
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x: Math.random() * w, y: Math.random() * h,
+      vx: 0, vy: 0,
+      size: 0.5 + Math.random() * 2,
+      alpha: 0.05 + Math.random() * 0.25,
+    });
+  }
+}
+
+function getDataColor() {
+  const c = raw.cur;
+  const r = c.bz < 0 ? 160 + clamp(Math.abs(c.bz), 0, 20) * 5 : 50;
+  const g = c.bz >= 0 ? 160 + clamp(c.bz, 0, 20) * 5 : 50;
+  const b = 80 + norm(c.bt, 0, 25) * 140;
+  return { r, g, b };
+}
+
+// --- PARTICLE FIELD ---
+function drawParticleField(dt) {
+  const ctx = fieldCtx;
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.save();
+  ctx.scale(DPR, DPR);
+
+  const c = raw.cur;
+  const fadeAlpha = 0.025 + norm(raw.kp, 0, 9) * 0.06;
+  ctx.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
+  ctx.fillRect(0, 0, w, h);
+
+  const windForce = norm(c.speed, 250, 800);
+  const bzForce = c.bz / 20;
+  const densScale = norm(c.density, 0, 25);
+  const col = getDataColor();
+
+  for (const p of particles) {
+    p.vx += (windForce * 2.5 - 0.3 + (Math.random() - 0.5) * densScale * 2.5) * dt * 60;
+    p.vy += (bzForce * 2 + (Math.random() - 0.5) * densScale * 1.2) * dt * 60;
+    p.vx *= 0.95; p.vy *= 0.95;
+    p.x += p.vx; p.y += p.vy;
+    if (p.x > w) { p.x = 0; p.y = Math.random() * h; }
+    if (p.x < 0) { p.x = w; p.y = Math.random() * h; }
+    if (p.y > h) p.y = 0;
+    if (p.y < 0) p.y = h;
+
+    const brightness = p.alpha + densScale * 0.35;
+    ctx.fillStyle = `rgba(${col.r}, ${col.g}, ${col.b}, ${brightness})`;
+    const sz = p.size * (1 + windForce * 0.6);
+    ctx.fillRect(p.x, p.y, sz, sz);
+  }
+
+  // Scan line
+  const scanX = raw.scanPos * w;
+  ctx.strokeStyle = `rgba(${col.r}, ${col.g}, ${col.b}, 0.12)`;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(scanX, 0); ctx.lineTo(scanX, h); ctx.stroke();
+
+  ctx.restore();
+}
+
+// --- SPECTRUM ---
+function drawSpectrum() {
+  if (!analyser) return;
+  const ctx = specCtx;
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.save();
+  ctx.scale(DPR, DPR);
+  ctx.clearRect(0, 0, w, h);
+
+  const bufLen = analyser.frequencyBinCount;
+  const freqData = new Uint8Array(bufLen);
+  analyser.getByteFrequencyData(freqData);
+
+  const col = getDataColor();
+  const barCount = 128;
+  const barW = w / barCount;
+
+  for (let i = 0; i < barCount; i++) {
+    // Log-scale frequency mapping
+    const fIdx = Math.floor(Math.pow(i / barCount, 2) * bufLen);
+    const val = freqData[fIdx] / 255;
+    const barH = val * h * 0.7;
+
+    ctx.fillStyle = `rgba(${col.r}, ${col.g}, ${col.b}, ${0.15 + val * 0.4})`;
+    ctx.fillRect(i * barW, h - barH, barW - 1, barH);
+  }
+
+  ctx.restore();
+}
+
+// --- POLAR IMF ---
+function drawPolar() {
+  const ctx = specCtx;
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.save();
+  ctx.scale(DPR, DPR);
+  ctx.clearRect(0, 0, w, h);
+
+  const cx = w / 2, cy = h / 2;
+  const radius = Math.min(w, h) * 0.3;
+  const col = getDataColor();
+
+  // Grid rings
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let r = 0.25; r <= 1; r += 0.25) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Cross
+  ctx.beginPath();
+  ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy);
+  ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius);
+  ctx.stroke();
+
+  // Plot Bx/By history as trail
+  if (raw.bx.length > 2 && raw.by.length > 2) {
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(${col.r}, ${col.g}, ${col.b}, 0.3)`;
+    ctx.lineWidth = 1.5;
+    const len = Math.min(raw.bx.length, raw.by.length);
+    for (let i = 0; i < len; i++) {
+      const px = cx + (raw.by[i] / 25) * radius;
+      const py = cy - (raw.bx[i] / 25) * radius;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Current point
+    const curX = cx + (raw.cur.by / 25) * radius;
+    const curY = cy - (raw.cur.bx / 25) * radius;
+    ctx.fillStyle = `rgb(${col.r}, ${col.g}, ${col.b})`;
+    ctx.beginPath();
+    ctx.arc(curX, curY, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Bz as vertical bar from center
+    const bzH = (raw.cur.bz / 25) * radius;
+    ctx.strokeStyle = raw.cur.bz >= 0 ? '#4f8' : '#f55';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, cy - bzH);
+    ctx.stroke();
+  }
+
+  // Labels
+  ctx.fillStyle = '#444';
+  ctx.font = '9px IBM Plex Mono';
+  ctx.textAlign = 'center';
+  ctx.fillText('BY+', cx + radius + 15, cy + 3);
+  ctx.fillText('BY-', cx - radius - 15, cy + 3);
+  ctx.fillText('BX+', cx, cy - radius - 8);
+  ctx.fillText('BX-', cx, cy + radius + 14);
+
+  ctx.restore();
+}
+
+// --- RAW SIGNAL (oscilloscope) ---
+function drawRawSignal() {
+  if (!analyser) return;
+  const ctx = specCtx;
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.save();
+  ctx.scale(DPR, DPR);
+  ctx.clearRect(0, 0, w, h);
+
+  const bufLen = analyser.frequencyBinCount;
+  const timeData = new Uint8Array(bufLen);
+  analyser.getByteTimeDomainData(timeData);
+
+  const col = getDataColor();
+
+  // Center line
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
+  ctx.stroke();
+
+  // Waveform
+  ctx.strokeStyle = `rgba(${col.r}, ${col.g}, ${col.b}, 0.6)`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  const sliceW = w / bufLen;
+  for (let i = 0; i < bufLen; i++) {
+    const v = timeData[i] / 128;
+    const y = (v * h) / 2;
+    i === 0 ? ctx.moveTo(0, y) : ctx.lineTo(i * sliceW, y);
+  }
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// --- IMPULSE FLASHES ---
+function drawImpulses(dt) {
+  const ctx = impulseCtx;
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.save();
+  ctx.scale(DPR, DPR);
+  ctx.clearRect(0, 0, w, h);
+
+  for (let i = impulseFlashes.length - 1; i >= 0; i--) {
+    const f = impulseFlashes[i];
+    f.age += dt;
+    const life = clamp(1 - f.age / 1.5, 0, 1);
+    if (life <= 0) { impulseFlashes.splice(i, 1); continue; }
+
+    const r = f.size * (1 + f.age * 0.5);
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = f.color;
+    ctx.globalAlpha = f.alpha * life * 0.3;
+    ctx.fill();
+
+    // Inner bright core
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, r * 0.2, 0, Math.PI * 2);
+    ctx.globalAlpha = f.alpha * life * 0.6;
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+
+let lastTime = 0;
+let hudTimer = 0;
+let dataRefreshTimer = 0;
+
+resizeCanvases();
+window.addEventListener('resize', resizeCanvases);
+
+function mainLoop(timestamp) {
+  requestAnimationFrame(mainLoop);
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+  lastTime = timestamp;
+
+  if (isRunning && raw.speed.length > 0) {
+    advanceScan(dt);
+    modulateAudio();
+
+    // Draw based on view mode
+    if (viewMode === 'field' || viewMode === 'minimal') drawParticleField(dt);
+
+    if (viewMode === 'spectrum') {
+      drawParticleField(dt);
+      drawSpectrum();
+    } else if (viewMode === 'polar') {
+      drawParticleField(dt);
+      drawPolar();
+    } else if (viewMode === 'raw') {
+      drawParticleField(dt);
+      drawRawSignal();
+    } else if (viewMode !== 'field' && viewMode !== 'minimal') {
+      specCtx.save(); specCtx.scale(DPR, DPR);
+      specCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      specCtx.restore();
+    }
+
+    drawImpulses(dt);
+
+    hudTimer += dt;
+    if (hudTimer > 0.15) {
+      updateHUD();
+      hudTimer = 0;
+    }
+  }
+}
+
+requestAnimationFrame(mainLoop);
+
+// ============================================================
+// CONTROLS
+// ============================================================
+
+let fetchInterval;
+
+document.getElementById('startBtn').addEventListener('click', async () => {
+  if (!isRunning) {
+    if (!audioCtx) initAudio();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    isRunning = true;
+    document.getElementById('startBtn').textContent = 'STOP';
+    document.getElementById('startBtn').classList.add('active');
+    await fetchAllData();
+    fetchInterval = setInterval(fetchAllData, 30000);
+  } else {
+    isRunning = false;
+    clearInterval(fetchInterval);
+    // Stop all audio — suspend the entire context
+    if (audioCtx && audioCtx.state === 'running') {
+      audioCtx.suspend();
+    }
+    document.getElementById('startBtn').textContent = 'LISTEN';
+    document.getElementById('startBtn').classList.remove('active');
+  }
+});
+
+document.getElementById('slVolume').addEventListener('input', e => {
+  if (masterGain) masterGain.gain.value = e.target.value / 100;
+  document.getElementById('sVolume').textContent = e.target.value;
+});
+
+document.getElementById('slSensitivity').addEventListener('input', e => {
+  sensitivity = e.target.value / 100;
+  document.getElementById('sSensitivity').textContent = e.target.value;
+});
+
+document.getElementById('slScanRate').addEventListener('input', e => {
+  scanRate = parseInt(e.target.value);
+  document.getElementById('sScanRate').textContent = scanRate + 's';
+});
+
+// View modes
+document.querySelectorAll('.vm-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.vm-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    viewMode = btn.dataset.mode;
+    // Clear overlay canvas on mode switch
+    specCtx.save(); specCtx.scale(DPR, DPR);
+    specCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    specCtx.restore();
+    // Clear field if switching to prevent stale frame
+    if (viewMode === 'minimal') {
+      fieldCtx.save(); fieldCtx.scale(DPR, DPR);
+      fieldCtx.fillStyle = '#000';
+      fieldCtx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+      fieldCtx.restore();
+    }
+  });
+});
+</script>
+</body>
+</html>

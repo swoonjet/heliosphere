@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solar Sonifier — Live Space Weather Instrument</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #08080c;
+    --surface: #111118;
+    --border: #1e1e2a;
+    --text: #e8e8f0;
+    --dim: #6a6a80;
+    --solar: #f0c040;
+    --solar-dim: #c9a03280;
+    --mag-n: #40a0f0;
+    --mag-s: #f04060;
+    --aurora: #40f080;
+    --storm: #f06040;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .header {
+    padding: 32px 40px 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .header .subtitle {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--dim);
+    display: inline-block;
+    margin-right: 6px;
+    transition: background 0.3s;
+  }
+  .status-dot.live { background: var(--aurora); animation: pulse 2s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 0;
+    min-height: calc(100vh - 80px);
+  }
+
+  /* --- Left: Visualizer --- */
+  .viz-panel {
+    padding: 32px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  canvas#waveform {
+    width: 100%;
+    height: 160px;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .data-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+  }
+
+  .data-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .data-card .label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    margin-bottom: 8px;
+  }
+
+  .data-card .value {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .data-card .unit {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--dim);
+    margin-left: 4px;
+  }
+
+  .data-card .mapping {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--dim);
+    margin-top: 8px;
+    opacity: 0.7;
+  }
+
+  .data-card .bar {
+    position: absolute;
+    bottom: 0; left: 0;
+    height: 3px;
+    border-radius: 0 0 8px 8px;
+    transition: width 0.6s ease;
+  }
+
+  /* Sparkline canvas inside cards */
+  canvas.sparkline {
+    width: 100%;
+    height: 40px;
+    margin-top: 12px;
+    opacity: 0.6;
+  }
+
+  /* --- Right: Controls --- */
+  .control-panel {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 32px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    overflow-y: auto;
+  }
+
+  .control-section h3 {
+    font-size: 11px;
+    font-family: 'IBM Plex Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    margin-bottom: 12px;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+
+  .btn:hover { border-color: var(--solar); }
+
+  .btn.active {
+    background: var(--solar);
+    color: #000;
+    border-color: var(--solar);
+  }
+
+  .btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .slider-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .slider-group label {
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .slider-group label span {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    outline: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--solar);
+    cursor: pointer;
+  }
+
+  .scale-select {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .scale-btn {
+    padding: 8px 4px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--dim);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s;
+  }
+
+  .scale-btn:hover { border-color: var(--solar-dim); color: var(--text); }
+  .scale-btn.active { border-color: var(--solar); color: var(--solar); background: rgba(240,192,64,0.08); }
+
+  .log {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--dim);
+    line-height: 1.6;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 12px;
+    background: var(--bg);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+
+  .log .entry { margin-bottom: 2px; }
+  .log .time { color: var(--dim); }
+  .log .event { color: var(--solar); }
+  .log .data-val { color: var(--mag-n); }
+
+  /* Transport bar */
+  .transport {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .transport .play-btn {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    border: 2px solid var(--solar);
+    background: transparent;
+    color: var(--solar);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+
+  .transport .play-btn:hover { background: var(--solar); color: #000; }
+  .transport .play-btn.playing { background: var(--solar); color: #000; }
+
+  .transport-info {
+    flex: 1;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--dim);
+    line-height: 1.5;
+  }
+
+  @media (max-width: 900px) {
+    .main { grid-template-columns: 1fr; }
+    .control-panel { border-left: none; border-top: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Solar Sonifier</h1>
+  <div class="subtitle"><span class="status-dot" id="statusDot"></span>Live Space Weather → Sound</div>
+</div>
+
+<div class="main">
+  <div class="viz-panel">
+    <!-- Transport -->
+    <div class="transport">
+      <button class="play-btn" id="playBtn" title="Start / Stop">&#9654;</button>
+      <div class="transport-info" id="transportInfo">
+        Press play to begin sonifying live solar wind data.<br>
+        Data from NOAA Space Weather Prediction Center.
+      </div>
+    </div>
+
+    <!-- Waveform -->
+    <canvas id="waveform"></canvas>
+
+    <!-- Data Cards -->
+    <div class="data-grid">
+      <div class="data-card">
+        <div class="label">Solar Wind Speed</div>
+        <div class="value" id="valSpeed">—<span class="unit">km/s</span></div>
+        <div class="mapping">→ Tempo (60–180 BPM)</div>
+        <div class="bar" style="background: var(--solar); width: 0%" id="barSpeed"></div>
+        <canvas class="sparkline" id="sparkSpeed"></canvas>
+      </div>
+      <div class="data-card">
+        <div class="label">Proton Density</div>
+        <div class="value" id="valDensity">—<span class="unit">p/cm³</span></div>
+        <div class="mapping">→ Rhythm density</div>
+        <div class="bar" style="background: var(--mag-n); width: 0%" id="barDensity"></div>
+        <canvas class="sparkline" id="sparkDensity"></canvas>
+      </div>
+      <div class="data-card">
+        <div class="label">IMF Bz</div>
+        <div class="value" id="valBz">—<span class="unit">nT</span></div>
+        <div class="mapping">→ Mode (+ major / − minor)</div>
+        <div class="bar" style="background: var(--aurora); width: 50%" id="barBz"></div>
+        <canvas class="sparkline" id="sparkBz"></canvas>
+      </div>
+      <div class="data-card">
+        <div class="label">IMF Bt (Total Field)</div>
+        <div class="value" id="valBt">—<span class="unit">nT</span></div>
+        <div class="mapping">→ Harmonic richness</div>
+        <div class="bar" style="background: var(--mag-s); width: 0%" id="barBt"></div>
+        <canvas class="sparkline" id="sparkBt"></canvas>
+      </div>
+      <div class="data-card">
+        <div class="label">Kp Index</div>
+        <div class="value" id="valKp">—<span class="unit">/9</span></div>
+        <div class="mapping">→ Intensity / distortion</div>
+        <div class="bar" style="background: var(--storm); width: 0%" id="barKp"></div>
+      </div>
+      <div class="data-card">
+        <div class="label">Dst Index</div>
+        <div class="value" id="valDst">—<span class="unit">nT</span></div>
+        <div class="mapping">→ Bass depth</div>
+        <div class="bar" style="background: var(--mag-n); width: 50%" id="barDst"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="control-panel">
+    <div class="control-section">
+      <h3>Scale</h3>
+      <div class="scale-select" id="scaleSelect">
+        <button class="scale-btn active" data-scale="pentatonic">Penta</button>
+        <button class="scale-btn" data-scale="dorian">Dorian</button>
+        <button class="scale-btn" data-scale="aeolian">Aeolian</button>
+        <button class="scale-btn" data-scale="lydian">Lydian</button>
+        <button class="scale-btn" data-scale="chromatic">Chroma</button>
+        <button class="scale-btn" data-scale="whole">Whole</button>
+      </div>
+    </div>
+
+    <div class="control-section">
+      <h3>Root Note</h3>
+      <div class="scale-select" id="rootSelect">
+        <button class="scale-btn" data-root="0">C</button>
+        <button class="scale-btn" data-root="2">D</button>
+        <button class="scale-btn active" data-root="4">E</button>
+        <button class="scale-btn" data-root="5">F</button>
+        <button class="scale-btn" data-root="7">G</button>
+        <button class="scale-btn" data-root="9">A</button>
+      </div>
+    </div>
+
+    <div class="control-section">
+      <h3>Sound</h3>
+      <div class="slider-group">
+        <label>Volume <span id="volVal">70%</span></label>
+        <input type="range" id="volume" min="0" max="100" value="70">
+      </div>
+      <div class="slider-group" style="margin-top: 12px;">
+        <label>Reverb <span id="reverbVal">40%</span></label>
+        <input type="range" id="reverb" min="0" max="100" value="40">
+      </div>
+      <div class="slider-group" style="margin-top: 12px;">
+        <label>Octave Range <span id="octaveVal">3</span></label>
+        <input type="range" id="octave" min="1" max="5" value="3">
+      </div>
+    </div>
+
+    <div class="control-section">
+      <h3>Voices</h3>
+      <div class="btn-row">
+        <button class="btn active" id="toggleMelody">Melody</button>
+        <button class="btn active" id="toggleBass">Bass</button>
+      </div>
+      <div class="btn-row" style="margin-top: 8px;">
+        <button class="btn active" id="togglePerc">Perc</button>
+        <button class="btn active" id="togglePad">Pad</button>
+      </div>
+    </div>
+
+    <div class="control-section">
+      <h3>Event Log</h3>
+      <div class="log" id="eventLog">
+        <div class="entry"><span class="time">--:--</span> Waiting for data…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// SOLAR SONIFIER v2 — Data IS the melody
+// The 2-hour history becomes a melodic sequence.
+// Change detection triggers audible space weather events.
+// Every parameter shift is designed to be heard.
+// ============================================================
+
+const SWPC = 'https://services.swpc.noaa.gov';
+const ENDPOINTS = {
+  plasma:  `${SWPC}/products/solar-wind/plasma-2-hour.json`,
+  mag:     `${SWPC}/products/solar-wind/mag-2-hour.json`,
+  kp:      `${SWPC}/products/noaa-planetary-k-index.json`,
+  dst:     `${SWPC}/products/kyoto-dst.json`,
+};
+
+// --- Scales ---
+const SCALES = {
+  pentatonic: [0,2,4,7,9],
+  dorian:     [0,2,3,5,7,9,10],
+  aeolian:    [0,2,3,5,7,8,10],
+  lydian:     [0,2,4,6,7,9,11],
+  chromatic:  [0,1,2,3,4,5,6,7,8,9,10,11],
+  whole:      [0,2,4,6,8,10],
+};
+
+// --- State ---
+let state = {
+  playing: false,
+  scale: 'pentatonic',
+  root: 4,
+  volume: 0.7,
+  reverbMix: 0.4,
+  octaveRange: 3,
+  voices: { melody: true, bass: true, perc: true, pad: true },
+  speed: 400, density: 5, bz: 0, bt: 5, kp: 2, dst: -10,
+  // Previous values for change detection
+  prev: { speed: 400, density: 5, bz: 0, bt: 5, kp: 2, dst: -10 },
+  // Full 2-hour history — this IS the musical score
+  hist: { speed: [], density: [], bz: [], bt: [] },
+  // Melodic sequences derived from data
+  melodySeq: [],    // normalized 0–1 from Bz history
+  rhythmSeq: [],    // density history → rhythm pattern
+  bassSeq: [],      // speed history → bass contour
+  // Active events
+  events: [],
+};
+
+let audioCtx, masterGain, reverbNode, reverbGain, dryGain, analyser;
+let compressor;
+let sequencerInterval, dataInterval;
+let activePadOscs = [];
+
+// --- Audio Setup ---
+function initAudio() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Compressor to glue everything + prevent clipping
+  compressor = audioCtx.createDynamicsCompressor();
+  compressor.threshold.value = -18;
+  compressor.knee.value = 12;
+  compressor.ratio.value = 4;
+
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = state.volume;
+
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+
+  // Longer, richer reverb
+  reverbNode = audioCtx.createConvolver();
+  const irLen = audioCtx.sampleRate * 4;
+  const irBuf = audioCtx.createBuffer(2, irLen, audioCtx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = irBuf.getChannelData(ch);
+    for (let i = 0; i < irLen; i++) {
+      // Multi-tap early reflections + exponential tail
+      let v = 0;
+      if (i < audioCtx.sampleRate * 0.05) v = (Math.random() * 2 - 1) * 0.6;
+      else v = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 1.8);
+      // Slight pitch modulation for shimmer
+      d[i] = v * (1 + 0.002 * Math.sin(i * 0.001 * (ch + 1)));
+    }
+  }
+  reverbNode.buffer = irBuf;
+
+  dryGain = audioCtx.createGain();
+  reverbGain = audioCtx.createGain();
+  updateReverbMix();
+
+  masterGain.connect(compressor);
+  compressor.connect(dryGain);
+  compressor.connect(reverbNode);
+  reverbNode.connect(reverbGain);
+  dryGain.connect(analyser);
+  reverbGain.connect(analyser);
+  analyser.connect(audioCtx.destination);
+}
+
+function updateReverbMix() {
+  if (!dryGain) return;
+  dryGain.gain.value = 1 - state.reverbMix * 0.4;
+  reverbGain.gain.value = state.reverbMix * 0.8;
+}
+
+// --- Note Helpers ---
+function midiToFreq(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
+
+function getScaleNotes(baseOctave = 3, octaves = null) {
+  const intervals = SCALES[state.scale];
+  const notes = [];
+  const oct = octaves || state.octaveRange;
+  for (let o = 0; o < oct; o++) {
+    for (const iv of intervals) {
+      notes.push(state.root + iv + (baseOctave + o) * 12);
+    }
+  }
+  return notes;
+}
+
+function quantizeToScale(normalized, notes) {
+  const idx = Math.round(normalized * (notes.length - 1));
+  return notes[Math.max(0, Math.min(idx, notes.length - 1))];
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function norm(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// ==============================
+// SYNTH VOICES — richer, more varied
+// ==============================
+
+function playTone(freq, duration, type = 'triangle', vol = 0.15, opts = {}) {
+  const now = audioCtx.currentTime;
+  const { detune = 0, attack = 0.02, filterFreq = 0, pan = 0 } = opts;
+
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.detune.value = detune;
+
+  // Attack-decay envelope
+  env.gain.setValueAtTime(0.001, now);
+  env.gain.linearRampToValueAtTime(vol, now + attack);
+  env.gain.exponentialRampToValueAtTime(vol * 0.4, now + duration * 0.3);
+  env.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+  let node = osc;
+
+  // Optional lowpass filter for timbral control
+  if (filterFreq > 0) {
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = filterFreq;
+    filt.Q.value = 2;
+    node.connect(filt);
+    node = filt;
+  }
+
+  // Stereo pan
+  if (pan !== 0) {
+    const panner = audioCtx.createStereoPanner();
+    panner.pan.value = clamp(pan, -1, 1);
+    node.connect(panner);
+    panner.connect(env);
+  } else {
+    node.connect(env);
+  }
+
+  env.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration + 0.05);
+}
+
+// FM bell — for event highlights
+function playBell(freq, duration, vol = 0.12) {
+  const now = audioCtx.currentTime;
+  const carrier = audioCtx.createOscillator();
+  const modulator = audioCtx.createOscillator();
+  const modGain = audioCtx.createGain();
+  const env = audioCtx.createGain();
+
+  modulator.frequency.value = freq * 2.01; // slightly inharmonic
+  modGain.gain.value = freq * 1.5;
+  carrier.frequency.value = freq;
+
+  env.gain.setValueAtTime(vol, now);
+  env.gain.exponentialRampToValueAtTime(vol * 0.3, now + duration * 0.15);
+  env.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+  modulator.connect(modGain);
+  modGain.connect(carrier.frequency);
+  carrier.connect(env);
+  env.connect(masterGain);
+
+  modulator.start(now);
+  carrier.start(now);
+  modulator.stop(now + duration + 0.05);
+  carrier.stop(now + duration + 0.05);
+}
+
+// Sub bass with harmonics
+function playSubBass(freq, duration, vol = 0.2, saturation = 0) {
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const osc2 = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  const filt = audioCtx.createBiquadFilter();
+
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  osc2.type = 'triangle';
+  osc2.frequency.value = freq;
+
+  filt.type = 'lowpass';
+  filt.frequency.value = 200 + saturation * 600;
+  filt.Q.value = 1 + saturation * 6;
+
+  env.gain.setValueAtTime(0.001, now);
+  env.gain.linearRampToValueAtTime(vol, now + 0.05);
+  env.gain.setValueAtTime(vol, now + duration * 0.6);
+  env.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+  osc.connect(filt);
+  osc2.connect(filt);
+  filt.connect(env);
+  env.connect(masterGain);
+
+  osc.start(now);
+  osc2.start(now);
+  osc.stop(now + duration + 0.05);
+  osc2.stop(now + duration + 0.05);
+}
+
+// Filtered noise — hihat / texture
+function playNoise(duration, vol = 0.06, hipass = 8000, opts = {}) {
+  const now = audioCtx.currentTime;
+  const { bandpass = 0, pan = 0 } = opts;
+  const bufSize = Math.max(1, Math.floor(audioCtx.sampleRate * duration));
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) d[i] = Math.random() * 2 - 1;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = bandpass ? 'bandpass' : 'highpass';
+  filt.frequency.value = bandpass || hipass;
+  filt.Q.value = bandpass ? 8 : 1;
+
+  const env = audioCtx.createGain();
+  env.gain.setValueAtTime(vol, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+  let out = env;
+  if (pan !== 0) {
+    const panner = audioCtx.createStereoPanner();
+    panner.pan.value = clamp(pan, -1, 1);
+    env.connect(panner);
+    out = panner;
+  }
+
+  src.connect(filt);
+  filt.connect(env);
+  out.connect(masterGain);
+  src.start(now);
+  src.stop(now + duration + 0.01);
+}
+
+// Kick with pitch and character from data
+function playKick(vol = 0.2, startFreq = 150, endFreq = 30, decay = 0.2) {
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(startFreq, now);
+  osc.frequency.exponentialRampToValueAtTime(endFreq, now + decay * 0.8);
+  env.gain.setValueAtTime(vol, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + decay);
+  // Click transient
+  const click = audioCtx.createOscillator();
+  const clickEnv = audioCtx.createGain();
+  click.type = 'square';
+  click.frequency.value = 800;
+  clickEnv.gain.setValueAtTime(vol * 0.3, now);
+  clickEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.01);
+
+  osc.connect(env); env.connect(masterGain);
+  click.connect(clickEnv); clickEnv.connect(masterGain);
+  osc.start(now); osc.stop(now + decay + 0.05);
+  click.start(now); click.stop(now + 0.02);
+}
+
+// Impact — for CME / sudden events
+function playImpact(vol = 0.3) {
+  const now = audioCtx.currentTime;
+  // Low boom
+  playKick(vol, 200, 20, 0.8);
+  // White noise burst
+  playNoise(0.3, vol * 0.4, 200);
+  // Metallic ring
+  playBell(midiToFreq(36 + state.root), 3.0, vol * 0.15);
+  playBell(midiToFreq(43 + state.root), 2.5, vol * 0.1);
+}
+
+// Rising sweep — for Bz flips
+function playBzFlip(direction, vol = 0.15) {
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.type = 'sawtooth';
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'bandpass';
+  filt.Q.value = 5;
+
+  if (direction > 0) { // going north (positive) — rising
+    osc.frequency.setValueAtTime(80, now);
+    osc.frequency.exponentialRampToValueAtTime(800, now + 1.5);
+    filt.frequency.setValueAtTime(200, now);
+    filt.frequency.exponentialRampToValueAtTime(2000, now + 1.5);
+  } else { // going south — falling
+    osc.frequency.setValueAtTime(800, now);
+    osc.frequency.exponentialRampToValueAtTime(60, now + 2.0);
+    filt.frequency.setValueAtTime(2000, now);
+    filt.frequency.exponentialRampToValueAtTime(100, now + 2.0);
+  }
+
+  env.gain.setValueAtTime(vol, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+
+  osc.connect(filt);
+  filt.connect(env);
+  env.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + 2.5);
+}
+
+// ==============================
+// DATA → MUSICAL SEQUENCES
+// ==============================
+
+// Convert data history arrays into note sequences the sequencer walks through
+function buildSequences() {
+  const notes = getScaleNotes(3, state.octaveRange);
+  const bassNotes = getScaleNotes(1, 2).filter(n => n < 52);
+
+  // --- Melody from Bz history ---
+  // Bz swings become melodic contour. Normalize then quantize to scale.
+  if (state.hist.bz.length > 4) {
+    const bz = state.hist.bz;
+    const min = Math.min(...bz), max = Math.max(...bz);
+    const range = max - min || 1;
+    // Downsample to 32-step phrase, smoothed
+    state.melodySeq = downsample(bz, 32).map(v => {
+      const n = (v - min) / range;
+      return quantizeToScale(n, notes);
+    });
+  }
+
+  // --- Rhythm pattern from density ---
+  // Higher density = more hits. Convert to probability array.
+  if (state.hist.density.length > 4) {
+    const dens = state.hist.density;
+    const max = Math.max(...dens, 1);
+    state.rhythmSeq = downsample(dens, 16).map(v => clamp(v / max, 0.1, 1.0));
+  }
+
+  // --- Bass contour from speed ---
+  if (state.hist.speed.length > 4) {
+    const spd = state.hist.speed;
+    const min = Math.min(...spd), max = Math.max(...spd);
+    const range = max - min || 1;
+    state.bassSeq = downsample(spd, 8).map(v => {
+      const n = (v - min) / range;
+      return quantizeToScale(n, bassNotes.length > 0 ? bassNotes : notes.slice(0, 5));
+    });
+  }
+}
+
+// Downsample array to targetLen using windowed averaging
+function downsample(arr, targetLen) {
+  if (arr.length <= targetLen) return [...arr];
+  const result = [];
+  const step = arr.length / targetLen;
+  for (let i = 0; i < targetLen; i++) {
+    const start = Math.floor(i * step);
+    const end = Math.floor((i + 1) * step);
+    let sum = 0, count = 0;
+    for (let j = start; j < end && j < arr.length; j++) {
+      if (!isNaN(arr[j])) { sum += arr[j]; count++; }
+    }
+    result.push(count > 0 ? sum / count : 0);
+  }
+  return result;
+}
+
+// ==============================
+// CHANGE DETECTION — space weather events
+// ==============================
+
+function detectEvents() {
+  const events = [];
+  const p = state.prev;
+
+  // Bz sign flip (north ↔ south) — major musical event
+  if (p.bz * state.bz < 0 && Math.abs(state.bz) > 2) {
+    events.push({ type: 'bz_flip', dir: state.bz > 0 ? 1 : -1, mag: Math.abs(state.bz - p.bz) });
+  }
+
+  // Sudden speed jump (>80 km/s change) — possible CME arrival
+  const speedDelta = Math.abs(state.speed - p.speed);
+  if (speedDelta > 80) {
+    events.push({ type: 'speed_shock', delta: speedDelta });
+  }
+
+  // Density spike (>3x increase) — compression region
+  if (state.density > p.density * 3 && state.density > 8) {
+    events.push({ type: 'density_spike', value: state.density });
+  }
+
+  // Kp jump (>=2 step increase) — storm onset
+  if (state.kp - p.kp >= 2) {
+    events.push({ type: 'storm_onset', kp: state.kp });
+  }
+
+  // Dst plunge (>30 nT drop) — ring current intensification
+  if (state.dst - p.dst < -30) {
+    events.push({ type: 'dst_plunge', dst: state.dst });
+  }
+
+  // Bt surge (>10 nT increase) — strong IMF
+  if (state.bt - p.bt > 10) {
+    events.push({ type: 'bt_surge', bt: state.bt });
+  }
+
+  return events;
+}
+
+function triggerSoundEvents(events) {
+  for (const evt of events) {
+    switch (evt.type) {
+      case 'bz_flip':
+        playBzFlip(evt.dir, 0.12 + norm(evt.mag, 0, 20) * 0.15);
+        logEvent('Bz FLIP', `${evt.dir > 0 ? 'NORTH' : 'SOUTH'} — mode shift`);
+        // Flash the Bz card
+        flashCard('valBz');
+        break;
+
+      case 'speed_shock':
+        playImpact(0.15 + norm(evt.delta, 80, 300) * 0.2);
+        logEvent('SHOCK', `Speed jump +${Math.round(evt.delta)} km/s`);
+        flashCard('valSpeed');
+        break;
+
+      case 'density_spike':
+        // Rapid-fire percussion burst
+        for (let i = 0; i < 6; i++) {
+          setTimeout(() => {
+            playNoise(0.05, 0.08, 2000 + i * 1000, { pan: (Math.random() - 0.5) * 1.5 });
+          }, i * 40);
+        }
+        logEvent('COMPRESSION', `Density spike ${evt.value.toFixed(1)} p/cm³`);
+        flashCard('valDensity');
+        break;
+
+      case 'storm_onset':
+        playImpact(0.25);
+        // Dissonant cluster
+        const notes = getScaleNotes();
+        for (let i = 0; i < 4; i++) {
+          setTimeout(() => {
+            playBell(midiToFreq(notes[Math.floor(Math.random() * notes.length)]), 2.5, 0.06);
+          }, i * 100);
+        }
+        logEvent('STORM', `Kp jumped to ${evt.kp}`);
+        flashCard('valKp');
+        break;
+
+      case 'dst_plunge':
+        playSubBass(midiToFreq(24 + state.root), 3.0, 0.25, 0.8);
+        logEvent('RING CURRENT', `Dst plunged to ${evt.dst} nT`);
+        flashCard('valDst');
+        break;
+
+      case 'bt_surge':
+        // Harmonic shimmer
+        const f = midiToFreq(60 + state.root);
+        for (let h = 1; h <= 5; h++) {
+          playTone(f * h, 1.5 + h * 0.3, 'sine', 0.04 / h, { pan: (h % 2 ? 0.3 : -0.3) });
+        }
+        logEvent('IMF SURGE', `Bt reached ${evt.bt.toFixed(1)} nT`);
+        flashCard('valBt');
+        break;
+    }
+  }
+}
+
+function flashCard(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const card = el.closest('.data-card');
+  card.style.transition = 'box-shadow 0.1s';
+  card.style.boxShadow = '0 0 20px rgba(240,192,64,0.4)';
+  setTimeout(() => { card.style.boxShadow = 'none'; card.style.transition = 'box-shadow 1s'; }, 800);
+}
+
+// ==============================
+// SEQUENCER v2 — walks through data-derived sequences
+// ==============================
+
+let step = 0;
+let phraseStep = 0;   // position in the melody phrase
+let beatInBar = 0;     // 0–3 for 4/4
+let bar = 0;
+
+function startSequencer() {
+  step = 0; phraseStep = 0; beatInBar = 0; bar = 0;
+  buildSequences();
+  updatePad();
+  tick();
+}
+
+function tick() {
+  if (!state.playing) return;
+
+  // --- Derived parameters ---
+  const bpm = 60 + ((clamp(state.speed, 250, 800) - 250) / 550) * 140;
+  const beatMs = (60 / bpm) * 1000;
+  const intensity = clamp(state.kp, 0, 9) / 9;
+  const richness = clamp(state.bt, 0, 30) / 30;
+  const bassDepth = clamp(Math.abs(state.dst), 0, 200) / 200;
+  const isStormy = state.kp >= 5;
+  const isDarkBz = state.bz < -5;
+
+  // Density controls subdivisions: 1 (sparse) to 6 (dense)
+  const subdivTarget = Math.round(1 + (clamp(state.density, 0, 25) / 25) * 5);
+  // Not every subdiv fires — use rhythm sequence as probability
+  const rhythmProb = state.rhythmSeq.length > 0
+    ? state.rhythmSeq[step % state.rhythmSeq.length]
+    : 0.5;
+
+  const subMs = beatMs / Math.max(1, subdivTarget);
+  const isDownbeat = (step % subdivTarget === 0);
+  const notes = getScaleNotes();
+
+  // ====== MELODY ======
+  if (state.voices.melody && state.melodySeq.length > 0) {
+    const melIdx = phraseStep % state.melodySeq.length;
+    const midi = state.melodySeq[melIdx];
+
+    // Not every step plays — use rhythm probability + some musical logic
+    const shouldPlay = (isDownbeat && Math.random() < 0.9)
+      || (!isDownbeat && Math.random() < rhythmProb * 0.7);
+
+    if (shouldPlay) {
+      // Timbre shifts with Bt (richness) and Kp (intensity)
+      const type = richness > 0.6 ? 'sawtooth' : richness > 0.3 ? 'triangle' : 'sine';
+      const filterFreq = 800 + richness * 4000 + intensity * 2000;
+      const dur = isDownbeat
+        ? 0.15 + (1 - intensity) * 0.35
+        : 0.05 + Math.random() * 0.15;
+      const vol = isDownbeat ? 0.10 + intensity * 0.08 : 0.05 + intensity * 0.04;
+      // Stereo spread from Bz — negative = left, positive = right
+      const pan = clamp(state.bz / 15, -0.8, 0.8);
+
+      playTone(midiToFreq(midi), dur, type, vol, {
+        detune: (Math.random() - 0.5) * 6,
+        attack: isDownbeat ? 0.01 : 0.005,
+        filterFreq,
+        pan: pan + (Math.random() - 0.5) * 0.3,
+      });
+
+      // During storms — add parallel harmony a 5th up
+      if (isStormy && isDownbeat && Math.random() < intensity * 0.6) {
+        playTone(midiToFreq(midi + 7), dur * 0.7, type, vol * 0.4, {
+          filterFreq: filterFreq * 0.6,
+          pan: -pan,
+        });
+      }
+    }
+    if (isDownbeat) phraseStep++;
+  }
+
+  // ====== BASS ======
+  if (state.voices.bass && isDownbeat && beatInBar === 0 && state.bassSeq.length > 0) {
+    const bassIdx = bar % state.bassSeq.length;
+    const bassMidi = state.bassSeq[bassIdx];
+    const dur = 0.3 + bassDepth * 0.5 + (1 - intensity) * 0.3;
+    playSubBass(midiToFreq(bassMidi), dur, 0.10 + bassDepth * 0.10, intensity * 0.6);
+
+    // Octave ghost on strong storms
+    if (isStormy && Math.random() < 0.4) {
+      playSubBass(midiToFreq(bassMidi - 12), dur * 1.5, 0.06, 0.8);
+    }
+  }
+
+  // Also play bass on beat 3 for more movement
+  if (state.voices.bass && isDownbeat && beatInBar === 2 && state.bassSeq.length > 0) {
+    const bassIdx = (bar + Math.floor(state.bassSeq.length / 2)) % state.bassSeq.length;
+    const bassMidi = state.bassSeq[bassIdx];
+    playSubBass(midiToFreq(bassMidi), 0.25, 0.06 + bassDepth * 0.05, intensity * 0.3);
+  }
+
+  // ====== PERCUSSION ======
+  if (state.voices.perc) {
+    // Kick — beat 1 and 3 (4/4 feel), harder during storms
+    if (isDownbeat && (beatInBar === 0 || beatInBar === 2)) {
+      const kickVol = beatInBar === 0 ? 0.12 + intensity * 0.12 : 0.06 + intensity * 0.06;
+      const kickPitch = isDarkBz ? 180 : 140;
+      playKick(kickVol, kickPitch, 25 + bassDepth * 15, 0.15 + bassDepth * 0.15);
+    }
+
+    // Hi-hat — density-driven. More density = more hats
+    if (Math.random() < rhythmProb * 0.8) {
+      const hatVol = 0.02 + intensity * 0.03 + (isDownbeat ? 0.015 : 0);
+      const hatFreq = 6000 + Math.random() * 6000;
+      const hatLen = isDownbeat ? 0.04 : 0.015 + Math.random() * 0.02;
+      playNoise(hatLen, hatVol, hatFreq, {
+        pan: (Math.random() - 0.5) * 0.8,
+      });
+    }
+
+    // Snare-like on beat 2 and 4 — bandpassed noise + tone
+    if (isDownbeat && (beatInBar === 1 || beatInBar === 3)) {
+      playNoise(0.08 + intensity * 0.04, 0.04 + intensity * 0.04, 3000, { bandpass: 1500 });
+      // Snare body
+      const snrOsc = audioCtx.createOscillator();
+      const snrEnv = audioCtx.createGain();
+      snrOsc.type = 'triangle';
+      snrOsc.frequency.value = 180;
+      const now = audioCtx.currentTime;
+      snrEnv.gain.setValueAtTime(0.04 + intensity * 0.03, now);
+      snrEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      snrOsc.connect(snrEnv); snrEnv.connect(masterGain);
+      snrOsc.start(now); snrOsc.stop(now + 0.08);
+    }
+
+    // Storm crackle — random noise bursts during high Kp
+    if (isStormy && Math.random() < (intensity - 0.5) * 0.5) {
+      playNoise(0.01 + Math.random() * 0.03, 0.03 + Math.random() * 0.04, 2000 + Math.random() * 10000, {
+        pan: (Math.random() - 0.5) * 1.8,
+      });
+    }
+  }
+
+  // ====== STEP BOOKKEEPING ======
+  step++;
+  if (isDownbeat) {
+    beatInBar = (beatInBar + 1) % 4;
+    if (beatInBar === 0) bar++;
+  }
+
+  sequencerInterval = setTimeout(tick, subMs);
+}
+
+// ====== PAD — continuous drone that morphs with data ======
+function updatePad() {
+  if (!state.voices.pad || !audioCtx) return;
+
+  // Kill existing pad
+  activePadOscs.forEach(o => { try { o.env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1); setTimeout(() => { try { o.osc.stop(); } catch(e){} }, 1500); } catch(e){} });
+  activePadOscs = [];
+
+  const notes = getScaleNotes(3, 2);
+  const isDark = state.bz < 0;
+
+  // Root
+  const rootMidi = notes[0];
+  // Fifth
+  const fifthMidi = notes.find(n => (n - rootMidi) % 12 === 7) || rootMidi + 7;
+  // Color tone — changes with Bz
+  const colorIdx = isDark
+    ? Math.floor(notes.length * 0.3)  // minor 3rd area
+    : Math.floor(notes.length * 0.6); // major area
+  const colorMidi = notes[colorIdx] || rootMidi + 4;
+
+  const padNotes = [rootMidi, fifthMidi, colorMidi];
+  const vol = 0.025 + (clamp(state.bt, 0, 20) / 20) * 0.025;
+
+  padNotes.forEach((midi, i) => {
+    const osc = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    const filt = audioCtx.createBiquadFilter();
+
+    osc.type = 'sine';
+    osc2.type = 'triangle';
+    osc.frequency.value = midiToFreq(midi);
+    osc2.frequency.value = midiToFreq(midi) * 1.002; // slight detune for width
+    filt.type = 'lowpass';
+    filt.frequency.value = 600 + (state.bt / 30) * 1200;
+
+    const now = audioCtx.currentTime;
+    env.gain.setValueAtTime(0.001, now);
+    env.gain.linearRampToValueAtTime(vol, now + 2.0);
+
+    const panner = audioCtx.createStereoPanner();
+    panner.pan.value = (i - 1) * 0.5; // L, C, R spread
+
+    osc.connect(filt);
+    osc2.connect(filt);
+    filt.connect(env);
+    env.connect(panner);
+    panner.connect(masterGain);
+    osc.start(now);
+    osc2.start(now);
+
+    activePadOscs.push({ osc, osc2, env, filt });
+  });
+}
+
+// Morph the pad without restarting (smooth parameter updates)
+function morphPad() {
+  if (activePadOscs.length === 0) return;
+  const now = audioCtx.currentTime;
+  const vol = 0.025 + (clamp(state.bt, 0, 20) / 20) * 0.025;
+  const filterFreq = 600 + (state.bt / 30) * 1200;
+
+  activePadOscs.forEach(o => {
+    try {
+      o.env.gain.linearRampToValueAtTime(vol, now + 2.0);
+      o.filt.frequency.linearRampToValueAtTime(filterFreq, now + 2.0);
+    } catch(e) {}
+  });
+}
+
+// ==============================
+// DATA FETCHING + EVENT PIPELINE
+// ==============================
+
+async function fetchData() {
+  try {
+    const [plasmaRes, magRes, kpRes, dstRes] = await Promise.all([
+      fetch(ENDPOINTS.plasma).then(r => r.json()),
+      fetch(ENDPOINTS.mag).then(r => r.json()),
+      fetch(ENDPOINTS.kp).then(r => r.json()),
+      fetch(ENDPOINTS.dst).then(r => r.json()),
+    ]);
+
+    // Save previous for change detection
+    state.prev = { speed: state.speed, density: state.density, bz: state.bz, bt: state.bt, kp: state.kp, dst: state.dst };
+
+    // Plasma — last valid entry
+    for (let i = plasmaRes.length - 1; i > 0; i--) {
+      const row = plasmaRes[i];
+      if (row[1] && row[2]) {
+        state.speed = parseFloat(row[2]);
+        state.density = parseFloat(row[1]);
+        break;
+      }
+    }
+
+    // Mag — last valid entry
+    for (let i = magRes.length - 1; i > 0; i--) {
+      const row = magRes[i];
+      if (row[3] && row[6]) {
+        state.bz = parseFloat(row[3]);
+        state.bt = parseFloat(row[6]);
+        break;
+      }
+    }
+
+    // Kp — last entry
+    if (kpRes.length > 1) {
+      const lastKp = kpRes[kpRes.length - 1];
+      state.kp = parseFloat(lastKp[1]);
+    }
+
+    // Dst — last entry
+    if (dstRes.length > 1) {
+      const lastDst = dstRes[dstRes.length - 1];
+      state.dst = parseFloat(lastDst[1]);
+    }
+
+    // Build full 2-hour histories
+    state.hist.speed = plasmaRes.slice(1).map(r => parseFloat(r[2])).filter(v => !isNaN(v));
+    state.hist.density = plasmaRes.slice(1).map(r => parseFloat(r[1])).filter(v => !isNaN(v));
+    state.hist.bz = magRes.slice(1).map(r => parseFloat(r[3])).filter(v => !isNaN(v));
+    state.hist.bt = magRes.slice(1).map(r => parseFloat(r[6])).filter(v => !isNaN(v));
+
+    // Rebuild musical sequences from new data
+    buildSequences();
+
+    // Detect and sonify space weather events
+    const events = detectEvents();
+    if (events.length > 0 && state.playing) {
+      triggerSoundEvents(events);
+    }
+
+    // Update pad voicing
+    if (state.playing) {
+      // Only rebuild pad if Bz sign changed or Bt shifted significantly
+      if (state.prev.bz * state.bz < 0 || Math.abs(state.bt - state.prev.bt) > 5) {
+        updatePad();
+      } else {
+        morphPad();
+      }
+    }
+
+    document.getElementById('statusDot').classList.add('live');
+    updateUI();
+
+    const evtSummary = events.map(e => e.type).join(', ');
+    logEvent('Data refresh', `Spd=${Math.round(state.speed)} Bz=${state.bz.toFixed(1)} Kp=${state.kp}${evtSummary ? ' [' + evtSummary + ']' : ''}`);
+  } catch (e) {
+    logEvent('Fetch error', e.message);
+  }
+}
+
+// --- UI Updates ---
+function updateUI() {
+  document.getElementById('valSpeed').innerHTML = `${Math.round(state.speed)}<span class="unit">km/s</span>`;
+  document.getElementById('valDensity').innerHTML = `${state.density.toFixed(1)}<span class="unit">p/cm³</span>`;
+  document.getElementById('valBz').innerHTML = `${state.bz.toFixed(1)}<span class="unit">nT</span>`;
+  document.getElementById('valBt').innerHTML = `${state.bt.toFixed(1)}<span class="unit">nT</span>`;
+  document.getElementById('valKp').innerHTML = `${state.kp.toFixed(1)}<span class="unit">/9</span>`;
+  document.getElementById('valDst').innerHTML = `${Math.round(state.dst)}<span class="unit">nT</span>`;
+
+  // Bars
+  document.getElementById('barSpeed').style.width = `${norm(state.speed, 250, 800) * 100}%`;
+  document.getElementById('barDensity').style.width = `${norm(state.density, 0, 30) * 100}%`;
+  document.getElementById('barBz').style.width = `${norm(state.bz, -20, 20) * 100}%`;
+  document.getElementById('barBt').style.width = `${norm(state.bt, 0, 30) * 100}%`;
+  document.getElementById('barKp').style.width = `${(state.kp / 9) * 100}%`;
+  document.getElementById('barDst').style.width = `${norm(Math.abs(state.dst), 0, 200) * 100}%`;
+
+  // Bz card color
+  const bzCard = document.getElementById('valBz').closest('.data-card');
+  bzCard.querySelector('.bar').style.background = state.bz >= 0 ? 'var(--aurora)' : 'var(--mag-s)';
+
+  // Transport info
+  const bpm = Math.round(60 + ((clamp(state.speed, 250, 800) - 250) / 550) * 140);
+  const subdivs = Math.round(1 + (clamp(state.density, 0, 25) / 25) * 5);
+  const mode = state.bz >= 0 ? 'Bright / North' : 'Dark / South';
+  const stormLabel = state.kp >= 5 ? ` · STORM Kp${state.kp.toFixed(0)}` : '';
+  document.getElementById('transportInfo').innerHTML =
+    `${bpm} BPM · ${subdivs} subdivs · ${mode}${stormLabel}<br>
+     Melody: ${state.melodySeq.length}-note phrase from Bz · Bass: ${state.bassSeq.length}-note from speed`;
+
+  // Sparklines
+  drawSparkline('sparkSpeed', state.hist.speed, 'var(--solar)');
+  drawSparkline('sparkDensity', state.hist.density, 'var(--mag-n)');
+  drawSparkline('sparkBz', state.hist.bz, state.bz >= 0 ? 'var(--aurora)' : 'var(--mag-s)');
+  drawSparkline('sparkBt', state.hist.bt, 'var(--mag-s)');
+}
+
+function drawSparkline(canvasId, data, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || data.length < 2) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  ctx.scale(dpr, dpr);
+  const w = canvas.offsetWidth, h = canvas.offsetHeight;
+  ctx.clearRect(0, 0, w, h);
+
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((v - min) / range) * (h - 4) - 2;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+// --- Waveform Visualizer ---
+function drawWaveform() {
+  const canvas = document.getElementById('waveform');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  ctx.scale(dpr, dpr);
+  const w = canvas.offsetWidth, h = canvas.offsetHeight;
+
+  function draw() {
+    requestAnimationFrame(draw);
+    if (!analyser) return;
+
+    const bufLen = analyser.frequencyBinCount;
+    const dataArr = new Uint8Array(bufLen);
+    analyser.getByteTimeDomainData(dataArr);
+
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim();
+    ctx.fillRect(0, 0, w, h);
+
+    // Gradient line
+    const gradient = ctx.createLinearGradient(0, 0, w, 0);
+    gradient.addColorStop(0, '#f0c040');
+    gradient.addColorStop(0.5, '#40f080');
+    gradient.addColorStop(1, '#40a0f0');
+    ctx.strokeStyle = gradient;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    const sliceW = w / bufLen;
+    let x = 0;
+    for (let i = 0; i < bufLen; i++) {
+      const v = dataArr[i] / 128.0;
+      const y = (v * h) / 2;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      x += sliceW;
+    }
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+  }
+  draw();
+}
+
+// --- Event Log ---
+function logEvent(event, detail = '') {
+  const log = document.getElementById('eventLog');
+  const now = new Date();
+  const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const entry = document.createElement('div');
+  entry.className = 'entry';
+  entry.innerHTML = `<span class="time">${time}</span> <span class="event">${event}</span> <span class="data-val">${detail}</span>`;
+  log.prepend(entry);
+  // Keep max 50
+  while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+// --- Controls ---
+document.getElementById('playBtn').addEventListener('click', async () => {
+  if (!state.playing) {
+    if (!audioCtx) initAudio();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    state.playing = true;
+    document.getElementById('playBtn').innerHTML = '&#9646;&#9646;';
+    document.getElementById('playBtn').classList.add('playing');
+    logEvent('Started', 'Sonification active');
+    await fetchData();
+    startSequencer();
+    drawWaveform();
+    dataInterval = setInterval(fetchData, 60000); // refresh every 60s
+  } else {
+    state.playing = false;
+    clearTimeout(sequencerInterval);
+    clearInterval(dataInterval);
+    // Kill pad
+    activePadOscs.forEach(o => { try { o.osc.stop(); o.osc2.stop(); } catch(e){} });
+    activePadOscs = [];
+    document.getElementById('playBtn').innerHTML = '&#9654;';
+    document.getElementById('playBtn').classList.remove('playing');
+    logEvent('Stopped');
+  }
+});
+
+document.getElementById('volume').addEventListener('input', e => {
+  state.volume = e.target.value / 100;
+  if (masterGain) masterGain.gain.value = state.volume;
+  document.getElementById('volVal').textContent = `${e.target.value}%`;
+});
+
+document.getElementById('reverb').addEventListener('input', e => {
+  state.reverbMix = e.target.value / 100;
+  updateReverbMix();
+  document.getElementById('reverbVal').textContent = `${e.target.value}%`;
+});
+
+document.getElementById('octave').addEventListener('input', e => {
+  state.octaveRange = parseInt(e.target.value);
+  buildSequences();
+  document.getElementById('octaveVal').textContent = e.target.value;
+});
+
+// Scale selection
+document.getElementById('scaleSelect').addEventListener('click', e => {
+  const btn = e.target.closest('.scale-btn');
+  if (!btn) return;
+  document.querySelectorAll('#scaleSelect .scale-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  state.scale = btn.dataset.scale;
+  buildSequences();
+  if (state.playing) updatePad();
+  logEvent('Scale', state.scale);
+});
+
+// Root selection
+document.getElementById('rootSelect').addEventListener('click', e => {
+  const btn = e.target.closest('.scale-btn');
+  if (!btn) return;
+  document.querySelectorAll('#rootSelect .scale-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  state.root = parseInt(btn.dataset.root);
+  buildSequences();
+  if (state.playing) updatePad();
+  logEvent('Root', ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][state.root]);
+});
+
+// Voice toggles
+['toggleMelody','toggleBass','togglePerc','togglePad'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => {
+    const key = id.replace('toggle','').toLowerCase();
+    state.voices[key] = !state.voices[key];
+    e.target.classList.toggle('active', state.voices[key]);
+    logEvent(key, state.voices[key] ? 'ON' : 'OFF');
+  });
+});
+
+// Initial UI
+updateUI();
+</script>
+</body>
+</html>
