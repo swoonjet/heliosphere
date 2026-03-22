@@ -1781,88 +1781,101 @@ document.getElementById('themeToggle').addEventListener('click', () => {
 });
 
 // ============================================================
-// MOOG SYNTH — data-affected mono synth, one octave
+// POLY SYNTH — data-affected, portamento between notes
 // ============================================================
 
-// Note: semitones from C4 (MIDI 60)
+// Semitones from C2 (MIDI 36)
 const KEY_MAP = {
   'a': 0, 'w': 1, 's': 2, 'e': 3, 'd': 4,
   'f': 5, 't': 6, 'g': 7, 'y': 8, 'h': 9,
   'u': 10, 'j': 11, 'k': 12,
 };
 
-let moogVoice = null; // monophonic
+const BASE_MIDI = 36; // C2
+const GLIDE_TIME = 0.12; // portamento in seconds
+const MAX_VOICES = 6;
 
-function playMoogNote(semitone) {
-  if (!audioCtx || !masterGain) return;
-  const now = audioCtx.currentTime;
+let polyVoices = {}; // keyed by semitone
+
+function getDataParams() {
   const c = raw.cur;
+  return {
+    cutoff: 300 + norm(c.speed, 250, 800) * 2800,
+    resonance: 1.5 + Math.abs(c.bz) * 0.6,
+    sawMix: norm(c.bt, 0, 25),
+    detune: c.density * 0.7,
+    drive: norm(raw.kp, 0, 9),
+  };
+}
 
-  // Base frequency — C4 + semitone
-  const freq = 261.63 * Math.pow(2, semitone / 12);
+function midiToFreq(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
 
-  // Data affects the synth character:
-  // Speed → filter cutoff (faster wind = brighter)
-  const cutoff = 400 + norm(c.speed, 250, 800) * 3500;
-  // Bz → filter resonance (negative = more resonant, squelchy)
-  const resonance = 2 + Math.abs(c.bz) * 0.8;
-  // Bt → oscillator mix (more field = more saw)
-  const sawMix = norm(c.bt, 0, 25);
-  // Density → detune amount
-  const detune = c.density * 0.8;
-  // Kp → drive / saturation
-  const drive = norm(raw.kp, 0, 9);
+function playNote(semitone) {
+  if (!audioCtx || !masterGain) return;
 
-  // Kill previous voice
-  if (moogVoice) {
-    try {
-      moogVoice.env.gain.cancelScheduledValues(now);
-      moogVoice.env.gain.setValueAtTime(moogVoice.env.gain.value, now);
-      moogVoice.env.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
-      setTimeout(() => {
-        try { moogVoice.osc1.stop(); moogVoice.osc2.stop(); } catch(e){}
-      }, 50);
-    } catch(e) {}
+  // If this note already playing, skip
+  if (polyVoices[semitone]) return;
+
+  // If at max voices, steal oldest
+  const keys = Object.keys(polyVoices);
+  if (keys.length >= MAX_VOICES) {
+    releaseNote(parseInt(keys[0]));
+  }
+
+  const now = audioCtx.currentTime;
+  const freq = midiToFreq(BASE_MIDI + semitone);
+  const p = getDataParams();
+
+  // Find nearest active voice for glide source
+  let glideFrom = freq;
+  const activeKeys = Object.keys(polyVoices).map(Number);
+  if (activeKeys.length > 0) {
+    // Closest note
+    const closest = activeKeys.reduce((a, b) =>
+      Math.abs(a - semitone) < Math.abs(b - semitone) ? a : b
+    );
+    glideFrom = midiToFreq(BASE_MIDI + closest);
   }
 
   // OSC 1: Square
   const osc1 = audioCtx.createOscillator();
   osc1.type = 'square';
-  osc1.frequency.value = freq;
-  osc1.detune.value = -detune;
+  osc1.frequency.setValueAtTime(glideFrom, now);
+  osc1.frequency.exponentialRampToValueAtTime(freq, now + GLIDE_TIME);
+  osc1.detune.value = -p.detune;
 
   // OSC 2: Sawtooth
   const osc2 = audioCtx.createOscillator();
   osc2.type = 'sawtooth';
-  osc2.frequency.value = freq;
-  osc2.detune.value = detune;
+  osc2.frequency.setValueAtTime(glideFrom, now);
+  osc2.frequency.exponentialRampToValueAtTime(freq, now + GLIDE_TIME);
+  osc2.detune.value = p.detune;
 
   // Mixer
   const g1 = audioCtx.createGain();
   const g2 = audioCtx.createGain();
-  g1.gain.value = 0.3 * (1 - sawMix * 0.5);
-  g2.gain.value = 0.3 * (0.3 + sawMix * 0.7);
+  g1.gain.value = 0.15 * (1 - p.sawMix * 0.5);
+  g2.gain.value = 0.15 * (0.3 + p.sawMix * 0.7);
 
-  // Moog-style ladder filter (24dB lowpass)
+  // Filter
   const filt = audioCtx.createBiquadFilter();
   filt.type = 'lowpass';
-  filt.frequency.value = cutoff * 2;
-  filt.Q.value = resonance;
-  // Filter envelope — sweep down
-  filt.frequency.setValueAtTime(cutoff * (1.5 + drive), now);
-  filt.frequency.exponentialRampToValueAtTime(cutoff * 0.4, now + 0.3 + (1 - drive) * 0.5);
+  filt.Q.value = p.resonance;
+  filt.frequency.setValueAtTime(p.cutoff * (1.2 + p.drive * 0.5), now);
+  filt.frequency.exponentialRampToValueAtTime(p.cutoff * 0.5, now + 0.4 + (1 - p.drive) * 0.6);
 
-  // Second filter stage for steeper rolloff
+  // Second filter stage
   const filt2 = audioCtx.createBiquadFilter();
   filt2.type = 'lowpass';
-  filt2.frequency.value = cutoff * 1.5;
-  filt2.Q.value = resonance * 0.5;
+  filt2.frequency.value = p.cutoff * 1.2;
+  filt2.Q.value = p.resonance * 0.4;
 
-  // Amp envelope — snappy attack, medium decay
+  // Amp envelope
   const env = audioCtx.createGain();
   env.gain.setValueAtTime(0.001, now);
-  env.gain.linearRampToValueAtTime(0.15 + drive * 0.08, now + 0.008);
-  env.gain.exponentialRampToValueAtTime(0.06 + drive * 0.04, now + 0.15);
+  env.gain.linearRampToValueAtTime(0.10 + p.drive * 0.04, now + 0.01);
+  // Sustain level
+  env.gain.linearRampToValueAtTime(0.06 + p.drive * 0.03, now + 0.2);
 
   osc1.connect(g1); osc2.connect(g2);
   g1.connect(filt); g2.connect(filt);
@@ -1872,37 +1885,39 @@ function playMoogNote(semitone) {
 
   osc1.start(now); osc2.start(now);
 
-  moogVoice = { osc1, osc2, env, filt, filt2 };
+  polyVoices[semitone] = { osc1, osc2, env, filt, filt2, g1, g2, freq };
 }
 
-function releaseMoogNote() {
-  if (!moogVoice || !audioCtx) return;
+function releaseNote(semitone) {
+  const v = polyVoices[semitone];
+  if (!v || !audioCtx) return;
   const now = audioCtx.currentTime;
   try {
-    moogVoice.env.gain.cancelScheduledValues(now);
-    moogVoice.env.gain.setValueAtTime(moogVoice.env.gain.value, now);
-    moogVoice.env.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-    moogVoice.filt.frequency.cancelScheduledValues(now);
-    moogVoice.filt.frequency.setValueAtTime(moogVoice.filt.frequency.value, now);
-    moogVoice.filt.frequency.exponentialRampToValueAtTime(80, now + 0.3);
-    const voice = moogVoice;
+    // Release envelope
+    v.env.gain.cancelScheduledValues(now);
+    v.env.gain.setValueAtTime(v.env.gain.value, now);
+    v.env.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    // Filter closes on release
+    v.filt.frequency.cancelScheduledValues(now);
+    v.filt.frequency.setValueAtTime(v.filt.frequency.value, now);
+    v.filt.frequency.exponentialRampToValueAtTime(60, now + 0.5);
+    const voice = v;
     setTimeout(() => {
       try { voice.osc1.stop(); voice.osc2.stop(); } catch(e){}
-    }, 400);
+    }, 600);
   } catch(e) {}
-  moogVoice = null;
+  delete polyVoices[semitone];
 }
 
-// Computer keyboard
-let activeKey = null;
+// Computer keyboard — polyphonic
+let activeKeys = new Set();
+
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   const semitone = KEY_MAP[e.key.toLowerCase()];
   if (semitone !== undefined && audioCtx) {
-    activeKey = semitone;
-    playMoogNote(semitone);
-    // Highlight UI key
-    document.querySelectorAll('.mini-keys .key').forEach(k => k.classList.remove('active'));
+    activeKeys.add(semitone);
+    playNote(semitone);
     const btn = document.querySelector(`.mini-keys .key[data-note="${semitone}"]`);
     if (btn) btn.classList.add('active');
   }
@@ -1910,44 +1925,45 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('keyup', (e) => {
   const semitone = KEY_MAP[e.key.toLowerCase()];
-  if (semitone !== undefined && semitone === activeKey) {
-    releaseMoogNote();
-    activeKey = null;
-    document.querySelectorAll('.mini-keys .key').forEach(k => k.classList.remove('active'));
+  if (semitone !== undefined) {
+    activeKeys.delete(semitone);
+    releaseNote(semitone);
+    const btn = document.querySelector(`.mini-keys .key[data-note="${semitone}"]`);
+    if (btn) btn.classList.remove('active');
   }
 });
 
-// Mouse/touch on UI keys
+// Mouse/touch on UI keys — polyphonic
 document.querySelectorAll('.mini-keys .key').forEach(btn => {
   const semitone = parseInt(btn.dataset.note);
 
   btn.addEventListener('mousedown', (e) => {
     e.preventDefault();
     if (!audioCtx) return;
-    playMoogNote(semitone);
+    playNote(semitone);
     btn.classList.add('active');
   });
 
   btn.addEventListener('touchstart', (e) => {
     e.preventDefault();
     if (!audioCtx) return;
-    playMoogNote(semitone);
+    playNote(semitone);
     btn.classList.add('active');
   });
 
   btn.addEventListener('mouseup', () => {
-    releaseMoogNote();
+    releaseNote(semitone);
     btn.classList.remove('active');
   });
 
   btn.addEventListener('mouseleave', () => {
-    releaseMoogNote();
+    releaseNote(semitone);
     btn.classList.remove('active');
   });
 
   btn.addEventListener('touchend', (e) => {
     e.preventDefault();
-    releaseMoogNote();
+    releaseNote(semitone);
     btn.classList.remove('active');
   });
 });
