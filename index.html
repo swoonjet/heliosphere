@@ -553,19 +553,10 @@ function createDrone(type, freq, vol) {
 }
 
 function createContinuousNoise() {
-  const bufLen = audioCtx.sampleRate * 4;
-  const buf = audioCtx.createBuffer(2, bufLen, audioCtx.sampleRate);
-  for (let ch = 0; ch < 2; ch++) {
-    const d = buf.getChannelData(ch);
-    for (let i = 0; i < bufLen; i++) {
-      d[i] = (Math.random() * 2 - 1) * 0.3;
-      if (Math.random() < 0.003) d[i] = (Math.random() > 0.5 ? 1 : -1) * 0.9; // crackle
-    }
-  }
-
-  const src = audioCtx.createBufferSource();
-  src.buffer = buf;
-  src.loop = true;
+  // Use multiple detuned high-freq oscillators to create noise-like texture
+  // More compatible than looping BufferSource on iOS
+  const gain = audioCtx.createGain();
+  gain.gain.value = 0.02;
 
   const bandpass = audioCtx.createBiquadFilter();
   bandpass.type = 'bandpass';
@@ -576,17 +567,27 @@ function createContinuousNoise() {
   hipass.type = 'highpass';
   hipass.frequency.value = 400;
 
-  const gain = audioCtx.createGain();
-  gain.gain.value = 0.02;
-
   const panner = audioCtx.createStereoPanner();
 
-  src.connect(bandpass);
+  // Create noise via many inharmonic oscillators
+  const noiseOscs = [];
+  const freqs = [3217, 4751, 6133, 7919, 8831, 10007, 11213, 12553, 13877, 15271];
+  freqs.forEach(f => {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.value = f + Math.random() * 100;
+    const oscGain = audioCtx.createGain();
+    oscGain.gain.value = 0.08;
+    osc.connect(oscGain);
+    oscGain.connect(bandpass);
+    osc.start();
+    noiseOscs.push(osc);
+  });
+
   bandpass.connect(hipass);
   hipass.connect(gain);
   gain.connect(panner);
   panner.connect(masterGain);
-  src.start();
 
   return { src, bandpass, hipass, gain, panner };
 }
@@ -1429,22 +1430,40 @@ requestAnimationFrame(mainLoop);
 
 let fetchInterval;
 
-async function togglePlay() {
+let toggleLock = false;
+function togglePlay() {
+  // Prevent double-fire from touch + click
+  if (toggleLock) return;
+  toggleLock = true;
+  setTimeout(() => toggleLock = false, 300);
+
   if (!isRunning) {
-    // Create AudioContext inside user gesture — required for mobile
+    // Create and unlock AudioContext synchronously inside the gesture
     if (!audioCtx) {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      // Must resume immediately inside the gesture before anything else
-      await audioCtx.resume();
-      // Now build the audio graph
-      buildAudioGraph();
-    } else if (audioCtx.state === 'suspended') {
-      await audioCtx.resume();
     }
+
+    // iOS unlock: play a silent buffer synchronously inside the gesture
+    try {
+      const silentBuf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+      const silentSrc = audioCtx.createBufferSource();
+      silentSrc.buffer = silentBuf;
+      silentSrc.connect(audioCtx.destination);
+      silentSrc.start(0);
+    } catch(e) {}
+
+    // Resume (may already be running after the silent buffer trick)
+    const resumePromise = audioCtx.resume();
+
+    // Build graph synchronously — don't await before this
+    if (!masterGain) buildAudioGraph();
+
     isRunning = true;
     document.getElementById('startBtn').textContent = 'STOP';
     document.getElementById('startBtn').classList.add('active');
-    await fetchAllData();
+
+    // Fetch data after audio is set up (non-blocking)
+    resumePromise.then(() => fetchAllData());
     fetchInterval = setInterval(fetchAllData, 30000);
   } else {
     isRunning = false;
@@ -1457,10 +1476,9 @@ async function togglePlay() {
   }
 }
 
-// Both click and touchend for mobile
 document.getElementById('startBtn').addEventListener('click', togglePlay);
 document.getElementById('startBtn').addEventListener('touchend', (e) => {
-  e.preventDefault(); // prevent ghost click
+  e.preventDefault();
   togglePlay();
 });
 
