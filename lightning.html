@@ -420,8 +420,8 @@
   </div>
   <div class="slider-row">
     <label>DENSITY</label>
-    <input type="range" id="slDensity" min="2" max="15" value="6">
-    <span id="sDensity">6</span>
+    <input type="range" id="slDensity" min="2" max="20" value="10">
+    <span id="sDensity">10</span>
   </div>
   <div class="slider-row">
     <label>PITCH</label>
@@ -828,61 +828,153 @@ const HOTSPOTS = [
   [-6, 147, 1.0, 'Papua NG'],
 ];
 
+// ============================================================
+// STORM CELL SIMULATION — models real lightning behavior
+//
+// Instead of fixed-interval ticks, we simulate active storm cells.
+// Each cell has a lifecycle: ramp up, peak, decay.
+// Strikes come in irregular bursts within each cell.
+// Multiple cells can be active simultaneously.
+// Quiet gaps between cell activity.
+// ============================================================
+
+let activeCells = [];  // { spot, intensity, age, lifetime, nextStrike }
+let simLoopId = null;
+
 function startSimulation() {
   useSimulation = true;
   setConnectionState('sim');
+  activeCells = [];
 
-  // Generate strikes at a sustainable rate — 1 strike every 150-300ms
-  simInterval = setInterval(() => {
-    if (!isRunning) return;
+  // Seed 2-3 initial cells so sound starts immediately
+  for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) {
+    spawnCell();
+  }
 
-    const now = new Date();
-    const utcHour = now.getUTCHours() + now.getUTCMinutes() / 60;
+  // Main sim loop — runs every 30ms (just scheduling, very light)
+  simLoopId = setInterval(simTick, 30);
 
-    // Single strike per tick
-    const spot = pickWeightedHotspot(utcHour);
-    const lat = spot[0] + (Math.random() - 0.5) * 15;
-    const lon = spot[1] + (Math.random() - 0.5) * 20;
+  simInterval = { main: simLoopId };
+}
 
-    handleStrike({
-      lat, lon,
-      time: Date.now() * 1000000,
-      pol: Math.random() < 0.85 ? -1 : 1,
-      region: classifyRegion(lat, lon),
-    });
-  }, 150 + Math.floor(Math.random() * 100)); // ~5-7 strikes/sec
+function spawnCell() {
+  const utcHour = new Date().getUTCHours() + new Date().getUTCMinutes() / 60;
+  const spot = pickWeightedHotspot(utcHour);
 
-  // Separate slower interval for occasional bursts
-  const burstInterval = setInterval(() => {
-    if (!isRunning) return;
-    if (Math.random() < 0.08) {
-      const spot = HOTSPOTS[Math.floor(Math.random() * HOTSPOTS.length)];
-      // Just 2-3 rapid strikes, not 8-20
-      for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) {
-        setTimeout(() => {
-          if (!isRunning) return;
-          handleStrike({
-            lat: spot[0] + (Math.random() - 0.5) * 3,
-            lon: spot[1] + (Math.random() - 0.5) * 4,
-            time: Date.now() * 1000000,
-            pol: Math.random() < 0.9 ? -1 : 1,
-            region: classifyRegion(spot[0], spot[1]),
-          });
-        }, i * 200);
+  // Storm cell properties — each cell is unique
+  const lifetime = 8 + Math.random() * 25;  // 8–33 seconds
+  const peakIntensity = 0.3 + Math.random() * 0.7; // how active at peak
+
+  activeCells.push({
+    spot,
+    // Wander from hotspot center
+    lat: spot[0] + (Math.random() - 0.5) * 10,
+    lon: spot[1] + (Math.random() - 0.5) * 15,
+    intensity: peakIntensity,
+    age: 0,
+    lifetime,
+    nextStrike: Math.random() * 0.3, // seconds until next strike
+    burstRemaining: 0,  // rapid strikes left in current burst
+    burstGap: 0,
+  });
+}
+
+function simTick() {
+  if (!isRunning) return;
+
+  const dt = 0.03; // 30ms tick
+  const now = Date.now();
+
+  // Spawn new cells — average 1 new cell every 5-10 seconds
+  if (Math.random() < dt * 0.15) {
+    if (activeCells.length < 6) { // max 6 simultaneous cells
+      spawnCell();
+    }
+  }
+
+  // Process each active cell
+  for (let i = activeCells.length - 1; i >= 0; i--) {
+    const cell = activeCells[i];
+    cell.age += dt;
+
+    // Remove dead cells
+    if (cell.age > cell.lifetime) {
+      activeCells.splice(i, 1);
+      continue;
+    }
+
+    // Cell intensity envelope: ramp up, plateau, decay
+    const lifePhase = cell.age / cell.lifetime;
+    let envelope;
+    if (lifePhase < 0.15) {
+      envelope = lifePhase / 0.15; // ramp up
+    } else if (lifePhase < 0.6) {
+      envelope = 1.0; // plateau
+    } else {
+      envelope = 1.0 - (lifePhase - 0.6) / 0.4; // decay
+    }
+    const currentIntensity = cell.intensity * envelope;
+
+    // Handle bursts (rapid-fire sequence)
+    if (cell.burstRemaining > 0) {
+      cell.burstGap -= dt;
+      if (cell.burstGap <= 0) {
+        fireStrike(cell, currentIntensity);
+        cell.burstRemaining--;
+        // Inter-burst gap: 30-120ms (very fast)
+        cell.burstGap = 0.03 + Math.random() * 0.09;
+      }
+      continue;
+    }
+
+    // Normal strike timing
+    cell.nextStrike -= dt;
+    if (cell.nextStrike <= 0) {
+      fireStrike(cell, currentIntensity);
+
+      // Decide next timing — this is where the chaos comes from
+      if (Math.random() < currentIntensity * 0.25) {
+        // START A BURST — 3-8 rapid strikes
+        cell.burstRemaining = 2 + Math.floor(Math.random() * 6);
+        cell.burstGap = 0.03 + Math.random() * 0.06;
+        cell.nextStrike = 999; // burst handles timing
+      } else if (Math.random() < 0.3) {
+        // Quiet gap — 0.8-3 seconds
+        cell.nextStrike = 0.8 + Math.random() * 2.2;
+      } else {
+        // Normal irregular spacing — 0.15-0.8 seconds
+        cell.nextStrike = 0.15 + Math.random() * 0.65;
       }
     }
-  }, 3000);
+  }
 
-  // Store burst interval ref so we can clear it on stop
-  simInterval = { main: simInterval, burst: burstInterval };
+  // If all cells died, spawn a new one soon
+  if (activeCells.length === 0 && Math.random() < 0.1) {
+    spawnCell();
+  }
+}
+
+function fireStrike(cell, intensity) {
+  // Scatter around cell center
+  const scatter = 2 + (1 - intensity) * 5;
+  const lat = cell.lat + (Math.random() - 0.5) * scatter;
+  const lon = cell.lon + (Math.random() - 0.5) * scatter;
+
+  // Cell slowly drifts
+  cell.lat += (Math.random() - 0.5) * 0.05;
+  cell.lon += (Math.random() - 0.5) * 0.08;
+
+  handleStrike({
+    lat, lon,
+    time: Date.now() * 1000000,
+    pol: Math.random() < 0.85 ? -1 : 1,
+    region: classifyRegion(lat, lon),
+  });
 }
 
 function pickWeightedHotspot(utcHour) {
-  // Weight each hotspot by its base weight * time-of-day factor
-  // Lightning peaks at ~15:00 local time
   const weights = HOTSPOTS.map(spot => {
     const localHour = (utcHour + spot[1] / 15 + 24) % 24;
-    // Peak at 15:00, minimum at 05:00
     const timeFactor = 0.1 + 0.9 * Math.max(0, Math.sin((localHour - 5) / 24 * Math.PI * 2) * 0.5 + 0.5);
     return spot[2] * timeFactor;
   });
@@ -906,7 +998,7 @@ let clusterBuf = []; // recent strikes for cluster detection
 // Audio throttle — max N sounds per second to prevent context death
 let audioHitsThisFrame = 0;
 let lastAudioReset = 0;
-let MAX_AUDIO_PER_SEC = 6; // user-controllable via density slider
+let MAX_AUDIO_PER_SEC = 10; // user-controllable via density slider
 
 function handleStrike(data) {
   if (!isRunning) return;
