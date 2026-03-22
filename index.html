@@ -1429,50 +1429,59 @@ requestAnimationFrame(mainLoop);
 // ============================================================
 
 let fetchInterval;
-
 let toggleLock = false;
+
+function startAudio() {
+  // Kill old context completely if it exists
+  if (audioCtx) {
+    try { audioCtx.close(); } catch(e) {}
+  }
+  // Reset all references
+  audioCtx = null;
+  masterGain = null;
+  analyser = null;
+  drones = {};
+  noiseNode = null;
+
+  // Fresh context — created inside user gesture = auto-unlocked on iOS
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // Build everything synchronously while still in the gesture
+  buildAudioGraph();
+  // Resume just in case (no-op if already running)
+  audioCtx.resume();
+
+  isRunning = true;
+  document.getElementById('startBtn').textContent = 'STOP';
+  document.getElementById('startBtn').classList.add('active');
+
+  fetchAllData();
+  fetchInterval = setInterval(fetchAllData, 30000);
+}
+
+function stopAudio() {
+  isRunning = false;
+  clearInterval(fetchInterval);
+  if (audioCtx) {
+    try { audioCtx.close(); } catch(e) {}
+    audioCtx = null;
+    masterGain = null;
+    analyser = null;
+    drones = {};
+    noiseNode = null;
+  }
+  document.getElementById('startBtn').textContent = 'LISTEN';
+  document.getElementById('startBtn').classList.remove('active');
+}
+
 function togglePlay() {
-  // Prevent double-fire from touch + click
   if (toggleLock) return;
   toggleLock = true;
-  setTimeout(() => toggleLock = false, 300);
+  setTimeout(() => toggleLock = false, 400);
 
   if (!isRunning) {
-    // Create and unlock AudioContext synchronously inside the gesture
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-
-    // iOS unlock: play a silent buffer synchronously inside the gesture
-    try {
-      const silentBuf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
-      const silentSrc = audioCtx.createBufferSource();
-      silentSrc.buffer = silentBuf;
-      silentSrc.connect(audioCtx.destination);
-      silentSrc.start(0);
-    } catch(e) {}
-
-    // Resume (may already be running after the silent buffer trick)
-    const resumePromise = audioCtx.resume();
-
-    // Build graph synchronously — don't await before this
-    if (!masterGain) buildAudioGraph();
-
-    isRunning = true;
-    document.getElementById('startBtn').textContent = 'STOP';
-    document.getElementById('startBtn').classList.add('active');
-
-    // Fetch data after audio is set up (non-blocking)
-    resumePromise.then(() => fetchAllData());
-    fetchInterval = setInterval(fetchAllData, 30000);
+    startAudio();
   } else {
-    isRunning = false;
-    clearInterval(fetchInterval);
-    if (audioCtx && audioCtx.state === 'running') {
-      audioCtx.suspend();
-    }
-    document.getElementById('startBtn').textContent = 'LISTEN';
-    document.getElementById('startBtn').classList.remove('active');
+    stopAudio();
   }
 }
 
