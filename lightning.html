@@ -865,40 +865,44 @@ function pickWeightedHotspot(utcHour) {
 let strikeBuf = []; // buffer for rate calculation
 let clusterBuf = []; // recent strikes for cluster detection
 
+// Audio throttle — max N sounds per second to prevent context death
+let audioHitsThisFrame = 0;
+let lastAudioReset = 0;
+const MAX_AUDIO_PER_SEC = 12;
+
 function handleStrike(data) {
   if (!isRunning) return;
 
   const { lat, lon, pol, region } = data;
 
-  // Stats
+  // Stats (always counted, even if sound is throttled)
   strikeCount++;
   totalStrikes++;
   strikeBuf.push(Date.now());
-  // Trim buffer to last 10 seconds
   const cutoff10 = Date.now() - 10000;
   while (strikeBuf.length && strikeBuf[0] < cutoff10) strikeBuf.shift();
 
-  // Region counts
   regionCounts[region] = (regionCounts[region] || 0) + 1;
   regionDecay[region] = (regionDecay[region] || 0) + 1;
 
-  // Polarity
   if (pol > 0) posCount++; else negCount++;
 
   lastStrike = data;
 
-  // Cluster detection — if >10 strikes in 500ms from similar location, trigger burst
-  clusterBuf.push({ lat, lon, time: Date.now() });
-  const cutoff500 = Date.now() - 500;
-  clusterBuf = clusterBuf.filter(s => s.time > cutoff500);
-  if (clusterBuf.length > 10 && Math.random() < 0.3) {
-    playClusterRoll(clusterBuf.length);
+  // Reset audio counter every second
+  const now = Date.now();
+  if (now - lastAudioReset > 1000) {
+    audioHitsThisFrame = 0;
+    lastAudioReset = now;
   }
 
-  // Sound
-  playStrikePerc(data);
+  // Sound — only if under throttle limit
+  if (audioHitsThisFrame < MAX_AUDIO_PER_SEC) {
+    playStrikePerc(data);
+    audioHitsThisFrame++;
+  }
 
-  // Visual
+  // Visual — always (visuals are cheap)
   const w = window.innerWidth, h = window.innerHeight;
   const px = ((lon + 180) / 360) * w;
   const py = ((90 - lat) / 180) * h;
@@ -909,6 +913,9 @@ function handleStrike(data) {
     age: 0,
     pol: pol,
   });
+
+  // Cap visual buffer too
+  if (strikeFlashes.length > 200) strikeFlashes.splice(0, 50);
 }
 
 function setConnectionState(state) {
