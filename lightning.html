@@ -474,134 +474,168 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function norm(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
 
 // ============================================================
-// AUDIO
+// AUDIO — ScriptProcessor mixer approach
+// ZERO node creation after init. One permanent processor node
+// mixes pre-rendered drum samples in software.
 // ============================================================
 
-// Pre-rendered drum buffers — created once, replayed cheaply
-let drumBuffers = {};
+const VOICE_COUNT = 8; // max simultaneous sounds
+let voices = [];       // { samples: Float32Array, pos: int, active: bool }
+let drums = {};        // named Float32Array samples
+let processorNode = null;
 
 function buildAudio() {
   masterGain = audioCtx.createGain();
-  masterGain.gain.value = 0.6;
+  masterGain.gain.value = 0.65;
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 2048;
+
+  // Render drums as raw Float32Arrays (not AudioBuffers)
+  const sr = audioCtx.sampleRate;
+  drums.kick     = renderDrum(sr, 'kick', 1.0);
+  drums.kickLow  = renderDrum(sr, 'kick', 0.7);
+  drums.snap     = renderDrum(sr, 'snap', 1.0);
+  drums.hat      = renderDrum(sr, 'hat', 1.0);
+  drums.hatOpen  = renderDrum(sr, 'hatOpen', 1.0);
+  drums.tom      = renderDrum(sr, 'tom', 1.0);
+  drums.tomLow   = renderDrum(sr, 'tom', 0.7);
+  drums.rim      = renderDrum(sr, 'rim', 1.0);
+  drums.click    = renderDrum(sr, 'click', 1.0);
+
+  // Init voice pool
+  voices = [];
+  for (let i = 0; i < VOICE_COUNT; i++) {
+    voices.push({ samples: null, pos: 0, active: false, rate: 1.0 });
+  }
+
+  // Single ScriptProcessorNode — the ONLY audio node besides gain
+  processorNode = audioCtx.createScriptProcessor(2048, 0, 1);
+  processorNode.onaudioprocess = mixVoices;
+  processorNode.connect(masterGain);
   masterGain.connect(analyser);
   analyser.connect(audioCtx.destination);
-
-  // Pre-render all drum sounds into AudioBuffers
-  const sr = audioCtx.sampleRate;
-  drumBuffers.kick = renderKick(sr);
-  drumBuffers.kickLow = renderKick(sr, 0.7);
-  drumBuffers.snap = renderSnap(sr);
-  drumBuffers.hat = renderHat(sr, 0.02);
-  drumBuffers.hatOpen = renderHat(sr, 0.1);
-  drumBuffers.tom = renderTom(sr, 1.0);
-  drumBuffers.tomLow = renderTom(sr, 0.7);
-  drumBuffers.rim = renderRim(sr);
-  drumBuffers.click = renderClick(sr);
 }
 
-function renderKick(sr, pitch = 1.0) {
-  const len = Math.floor(sr * 0.25);
-  const buf = audioCtx.createBuffer(1, len, sr);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    const env = Math.exp(-t * 12);
-    const freq = 150 * pitch * Math.exp(-t * 20) + 30 * pitch;
-    d[i] = Math.sin(2 * Math.PI * freq * t) * env * 0.5;
-    // Click transient
-    if (i < sr * 0.005) d[i] += (Math.random() * 2 - 1) * 0.3 * (1 - i / (sr * 0.005));
+function renderDrum(sr, type, pitch) {
+  let len, data;
+  switch (type) {
+    case 'kick': {
+      len = Math.floor(sr * 0.25);
+      data = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        const env = Math.exp(-t * 12);
+        const freq = 150 * pitch * Math.exp(-t * 20) + 30 * pitch;
+        data[i] = Math.sin(2 * Math.PI * freq * t) * env * 0.45;
+        if (i < sr * 0.004) data[i] += (Math.random() * 2 - 1) * 0.25 * (1 - i / (sr * 0.004));
+      }
+      break;
+    }
+    case 'snap': {
+      len = Math.floor(sr * 0.07);
+      data = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        const env = Math.exp(-t * 40);
+        data[i] = ((Math.random() * 2 - 1) * 0.35 + Math.sin(2 * Math.PI * 400 * t) * 0.15) * env;
+      }
+      break;
+    }
+    case 'hat': {
+      len = Math.floor(sr * 0.025);
+      data = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        const env = Math.exp(-t * 120);
+        data[i] = (Math.sin(7523 * t * 6.28) * 0.15 + Math.sin(9137 * t * 6.28) * 0.1 + (Math.random() * 2 - 1) * 0.12) * env;
+      }
+      break;
+    }
+    case 'hatOpen': {
+      len = Math.floor(sr * 0.1);
+      data = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        const env = Math.exp(-t * 25);
+        data[i] = (Math.sin(7523 * t * 6.28) * 0.12 + Math.sin(11743 * t * 6.28) * 0.08 + (Math.random() * 2 - 1) * 0.1) * env;
+      }
+      break;
+    }
+    case 'tom': {
+      len = Math.floor(sr * 0.18);
+      data = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        const env = Math.exp(-t * 15);
+        const freq = (180 * pitch) * Math.exp(-t * 8) + 60 * pitch;
+        data[i] = Math.sin(2 * Math.PI * freq * t) * env * 0.4;
+      }
+      break;
+    }
+    case 'rim': {
+      len = Math.floor(sr * 0.025);
+      data = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        const env = Math.exp(-t * 100);
+        data[i] = (Math.sin(800 * t * 6.28) * 0.3 + Math.sin(1200 * t * 6.28) * 0.15) * env;
+      }
+      break;
+    }
+    case 'click': {
+      len = Math.floor(sr * 0.008);
+      data = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 400) * 0.25;
+      }
+      break;
+    }
   }
-  return buf;
+  return data;
 }
 
-function renderSnap(sr) {
-  const len = Math.floor(sr * 0.08);
-  const buf = audioCtx.createBuffer(1, len, sr);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    const env = Math.exp(-t * 40);
-    // Noise + pitched body
-    d[i] = ((Math.random() * 2 - 1) * 0.4 + Math.sin(2 * Math.PI * 400 * t) * 0.2) * env;
-  }
-  return buf;
-}
+// The audio callback — mixes all active voices into output
+function mixVoices(e) {
+  const output = e.outputBuffer.getChannelData(0);
+  const len = output.length;
 
-function renderHat(sr, decay = 0.02) {
-  const len = Math.floor(sr * (decay + 0.01));
-  const buf = audioCtx.createBuffer(1, len, sr);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    const env = Math.exp(-t / decay * 3);
-    // Band-limited noise (simulate by mixing high-freq sines)
-    let v = 0;
-    v += Math.sin(2 * Math.PI * 7523 * t) * 0.2;
-    v += Math.sin(2 * Math.PI * 9137 * t) * 0.15;
-    v += Math.sin(2 * Math.PI * 11743 * t) * 0.1;
-    v += (Math.random() * 2 - 1) * 0.15;
-    d[i] = v * env;
-  }
-  return buf;
-}
+  // Clear
+  for (let i = 0; i < len; i++) output[i] = 0;
 
-function renderTom(sr, pitch = 1.0) {
-  const len = Math.floor(sr * 0.2);
-  const buf = audioCtx.createBuffer(1, len, sr);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    const env = Math.exp(-t * 15);
-    const freq = (180 * pitch) * Math.exp(-t * 8) + 60 * pitch;
-    d[i] = (Math.sin(2 * Math.PI * freq * t) * 0.6 + Math.sin(2 * Math.PI * freq * 1.5 * t) * 0.15) * env;
-  }
-  return buf;
-}
-
-function renderRim(sr) {
-  const len = Math.floor(sr * 0.03);
-  const buf = audioCtx.createBuffer(1, len, sr);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    const env = Math.exp(-t * 100);
-    d[i] = (Math.sin(2 * Math.PI * 800 * t) * 0.4 + Math.sin(2 * Math.PI * 1200 * t) * 0.2) * env;
-  }
-  return buf;
-}
-
-function renderClick(sr) {
-  const len = Math.floor(sr * 0.01);
-  const buf = audioCtx.createBuffer(1, len, sr);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 300) * 0.3;
-  }
-  return buf;
-}
-
-// Play a pre-rendered buffer — 1 node only: source → masterGain
-function triggerDrum(bufferName, rate = 1.0) {
-  if (!audioCtx || !masterGain || !drumBuffers[bufferName]) return;
-  try {
-    const src = audioCtx.createBufferSource();
-    src.buffer = drumBuffers[bufferName];
-    src.playbackRate.value = clamp(rate * pitchMult, 0.3, 3.0);
-    src.connect(masterGain);
-    src.start();
-  } catch(e) {
-    // If context is broken, don't crash
+  // Mix active voices
+  for (const v of voices) {
+    if (!v.active || !v.samples) continue;
+    const rate = v.rate;
+    for (let i = 0; i < len; i++) {
+      const srcIdx = Math.floor(v.pos);
+      if (srcIdx >= v.samples.length) {
+        v.active = false;
+        break;
+      }
+      output[i] += v.samples[srcIdx];
+      v.pos += rate;
+    }
   }
 }
 
-// --- Map strike to percussion ---
+// Trigger a drum by assigning it to the next free voice (or stealing oldest)
+let nextVoice = 0;
+
+function triggerDrum(name, rate = 1.0) {
+  const d = drums[name];
+  if (!d) return;
+
+  // Find a free voice, or steal the next one round-robin
+  let v = voices[nextVoice];
+  v.samples = d;
+  v.pos = 0;
+  v.rate = clamp(rate * pitchMult, 0.3, 3.0);
+  v.active = true;
+  nextVoice = (nextVoice + 1) % VOICE_COUNT;
+}
 
 function playStrikePerc(strike) {
-  if (!audioCtx || !masterGain) return;
-
   const { lat, region } = strike;
   const latRate = 0.7 + (Math.abs(lat) / 90) * 0.8;
 
@@ -1193,8 +1227,9 @@ function stopAll() {
     else clearInterval(simInterval);
     simInterval = null;
   }
+  if (processorNode) { try { processorNode.disconnect(); } catch(e) {} processorNode = null; }
   if (audioCtx) { try { audioCtx.close(); } catch(e) {} }
-  audioCtx = null; masterGain = null; drumBuffers = {};
+  audioCtx = null; masterGain = null; drums = {}; voices = [];
   document.getElementById('startBtn').textContent = 'LISTEN';
   document.getElementById('startBtn').classList.remove('active');
   setConnectionState('');
