@@ -368,6 +368,86 @@
     transition: height 1s, background 1s;
   }
 
+  /* --- INFO STRIP (top center) --- */
+  .info-strip {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
+    pointer-events: none;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .info-strip .sep {
+    margin: 0 6px;
+    color: var(--text-ghost);
+  }
+
+  /* --- MINI KEYBOARD --- */
+  .mini-keys {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    display: flex;
+    gap: 0;
+    pointer-events: auto;
+    height: 36px;
+  }
+
+  .mini-keys .key {
+    width: 24px;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.08s, border-color 0.08s;
+    position: relative;
+    font-family: inherit;
+    font-size: 7px;
+    color: var(--text-ghost);
+    letter-spacing: 0.04em;
+    padding: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 3px;
+  }
+
+  .mini-keys .key:hover { border-color: var(--border-hover); }
+  .mini-keys .key.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+  }
+
+  .mini-keys .key.black {
+    width: 16px;
+    height: 22px;
+    margin-left: -8px;
+    margin-right: -8px;
+    z-index: 2;
+    border-color: var(--text-ghost);
+    background: var(--text-muted);
+    color: transparent;
+    border-radius: 0 0 2px 2px;
+  }
+
+  body.light .mini-keys .key.black {
+    background: var(--text-dim);
+  }
+
+  .mini-keys .key.black.active {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
   .age-label {
     font-size: 8px;
     color: var(--text-ghost);
@@ -381,13 +461,23 @@
   }
 </style>
 </head>
-<body>
+<body class="light">
 
 <canvas id="fieldCanvas"></canvas>
 <canvas id="spectrumCanvas"></canvas>
 <canvas id="impulseCanvas"></canvas>
 
 <div class="storm-banner" id="stormBanner"></div>
+
+<div class="info-strip">
+  <span id="vScales">—</span>
+  <span class="sep">·</span>
+  <span id="vTime">—</span>
+  <span class="sep">·</span>
+  <span id="vScan">—</span>
+  <span class="sep">·</span>
+  <span id="vSamples">—</span>
+</div>
 
 <div class="hud">
   <!-- TOP LEFT: Plasma -->
@@ -436,34 +526,31 @@
     </div>
   </div>
 
-  <!-- BOTTOM LEFT: Scales -->
-  <div class="hud-bl">
-    <div class="metric">
-      <div class="label">NOAA Storm Scale</div>
-      <div class="value" id="vScales" style="font-size:18px">—</div>
-    </div>
-    <div class="metric">
-      <div class="label">Scan Position</div>
-      <div class="value" id="vScan" style="font-size:14px;color:var(--text-dim)">0%</div>
-    </div>
-  </div>
-
-  <!-- BOTTOM RIGHT: Time -->
-  <div class="hud-br">
-    <div class="metric">
-      <div class="label">UTC</div>
-      <div class="value" id="vTime" style="font-size:18px">—</div>
-    </div>
-    <div class="metric">
-      <div class="label">Data Points</div>
-      <div class="value" id="vSamples" style="font-size:14px;color:var(--text-dim)">—</div>
-    </div>
-  </div>
+  <!-- BOTTOM LEFT: empty to avoid overlap with sliders -->
+  <div class="hud-bl"></div>
+  <!-- BOTTOM RIGHT: empty to avoid overlap with view modes -->
+  <div class="hud-br"></div>
 </div>
 
-<div class="center-ui">
+<div class="center-ui" style="bottom:72px">
   <button class="start-btn" id="startBtn">LISTEN</button>
   <div class="status-line" id="statusLine">NOAA SWPC REAL-TIME FEED · L1 LAGRANGE POINT</div>
+</div>
+
+<div class="mini-keys" id="miniKeys">
+  <button class="key" data-note="0">C</button>
+  <button class="key black" data-note="1"></button>
+  <button class="key" data-note="2">D</button>
+  <button class="key black" data-note="3"></button>
+  <button class="key" data-note="4">E</button>
+  <button class="key" data-note="5">F</button>
+  <button class="key black" data-note="6"></button>
+  <button class="key" data-note="7">G</button>
+  <button class="key black" data-note="8"></button>
+  <button class="key" data-note="9">A</button>
+  <button class="key black" data-note="10"></button>
+  <button class="key" data-note="11">B</button>
+  <button class="key" data-note="12">C</button>
 </div>
 
 <div class="event-flash" id="eventFlash"></div>
@@ -481,7 +568,7 @@
   <button class="vm-btn" data-mode="raw">RAW SIGNAL</button>
   <button class="vm-btn" data-mode="minimal">MINIMAL</button>
   <label style="margin-top:10px">Theme</label>
-  <button class="vm-btn" id="themeToggle">LIGHT</button>
+  <button class="vm-btn active" id="themeToggle">DARK</button>
 </div>
 
 <div class="controls-left">
@@ -515,7 +602,7 @@ let isRunning = false;
 let sensitivity = 0.75;
 let scanRate = 90; // seconds per full sweep
 let viewMode = 'field';
-let lightMode = false;
+let lightMode = true;
 
 // Persistent sound sources
 let drones = {};
@@ -1148,12 +1235,10 @@ function updateHUD() {
   scaleEl.textContent = scaleStr;
   scaleEl.style.color = G >= 3 ? C('temp') : G >= 1 ? C('warn') : C('dim');
 
-  // Scan
-  document.getElementById('vScan').textContent = `${Math.round(raw.scanPos * 100)}% through 2h window`;
-
-  // Time
-  document.getElementById('vTime').textContent = new Date().toLocaleTimeString('en-US', { hour12: false, timeZone: 'UTC' });
-  document.getElementById('vSamples').textContent = `${raw.speed.length} plasma · ${raw.bz.length} mag`;
+  // Compact info strip
+  document.getElementById('vScan').textContent = `SCAN ${Math.round(raw.scanPos * 100)}%`;
+  document.getElementById('vTime').textContent = new Date().toLocaleTimeString('en-US', { hour12: false, timeZone: 'UTC' }) + ' UTC';
+  document.getElementById('vSamples').textContent = `${raw.speed.length}+${raw.bz.length} PTS`;
 
   // Data age
   const age = (Date.now() - raw.lastFetchTime) / 30000; // 0–1 over 30s
@@ -1693,6 +1778,178 @@ document.getElementById('themeToggle').addEventListener('click', () => {
   document.getElementById('bTemp').style.background = 'var(--bar-temp)';
   document.getElementById('bBt').style.background = 'var(--bar-bt)';
   document.getElementById('bKp').style.background = 'var(--bar-speed)';
+});
+
+// ============================================================
+// MOOG SYNTH — data-affected mono synth, one octave
+// ============================================================
+
+// Note: semitones from C4 (MIDI 60)
+const KEY_MAP = {
+  'a': 0, 'w': 1, 's': 2, 'e': 3, 'd': 4,
+  'f': 5, 't': 6, 'g': 7, 'y': 8, 'h': 9,
+  'u': 10, 'j': 11, 'k': 12,
+};
+
+let moogVoice = null; // monophonic
+
+function playMoogNote(semitone) {
+  if (!audioCtx || !masterGain) return;
+  const now = audioCtx.currentTime;
+  const c = raw.cur;
+
+  // Base frequency — C4 + semitone
+  const freq = 261.63 * Math.pow(2, semitone / 12);
+
+  // Data affects the synth character:
+  // Speed → filter cutoff (faster wind = brighter)
+  const cutoff = 400 + norm(c.speed, 250, 800) * 3500;
+  // Bz → filter resonance (negative = more resonant, squelchy)
+  const resonance = 2 + Math.abs(c.bz) * 0.8;
+  // Bt → oscillator mix (more field = more saw)
+  const sawMix = norm(c.bt, 0, 25);
+  // Density → detune amount
+  const detune = c.density * 0.8;
+  // Kp → drive / saturation
+  const drive = norm(raw.kp, 0, 9);
+
+  // Kill previous voice
+  if (moogVoice) {
+    try {
+      moogVoice.env.gain.cancelScheduledValues(now);
+      moogVoice.env.gain.setValueAtTime(moogVoice.env.gain.value, now);
+      moogVoice.env.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+      setTimeout(() => {
+        try { moogVoice.osc1.stop(); moogVoice.osc2.stop(); } catch(e){}
+      }, 50);
+    } catch(e) {}
+  }
+
+  // OSC 1: Square
+  const osc1 = audioCtx.createOscillator();
+  osc1.type = 'square';
+  osc1.frequency.value = freq;
+  osc1.detune.value = -detune;
+
+  // OSC 2: Sawtooth
+  const osc2 = audioCtx.createOscillator();
+  osc2.type = 'sawtooth';
+  osc2.frequency.value = freq;
+  osc2.detune.value = detune;
+
+  // Mixer
+  const g1 = audioCtx.createGain();
+  const g2 = audioCtx.createGain();
+  g1.gain.value = 0.3 * (1 - sawMix * 0.5);
+  g2.gain.value = 0.3 * (0.3 + sawMix * 0.7);
+
+  // Moog-style ladder filter (24dB lowpass)
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'lowpass';
+  filt.frequency.value = cutoff * 2;
+  filt.Q.value = resonance;
+  // Filter envelope — sweep down
+  filt.frequency.setValueAtTime(cutoff * (1.5 + drive), now);
+  filt.frequency.exponentialRampToValueAtTime(cutoff * 0.4, now + 0.3 + (1 - drive) * 0.5);
+
+  // Second filter stage for steeper rolloff
+  const filt2 = audioCtx.createBiquadFilter();
+  filt2.type = 'lowpass';
+  filt2.frequency.value = cutoff * 1.5;
+  filt2.Q.value = resonance * 0.5;
+
+  // Amp envelope — snappy attack, medium decay
+  const env = audioCtx.createGain();
+  env.gain.setValueAtTime(0.001, now);
+  env.gain.linearRampToValueAtTime(0.15 + drive * 0.08, now + 0.008);
+  env.gain.exponentialRampToValueAtTime(0.06 + drive * 0.04, now + 0.15);
+
+  osc1.connect(g1); osc2.connect(g2);
+  g1.connect(filt); g2.connect(filt);
+  filt.connect(filt2);
+  filt2.connect(env);
+  env.connect(masterGain);
+
+  osc1.start(now); osc2.start(now);
+
+  moogVoice = { osc1, osc2, env, filt, filt2 };
+}
+
+function releaseMoogNote() {
+  if (!moogVoice || !audioCtx) return;
+  const now = audioCtx.currentTime;
+  try {
+    moogVoice.env.gain.cancelScheduledValues(now);
+    moogVoice.env.gain.setValueAtTime(moogVoice.env.gain.value, now);
+    moogVoice.env.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    moogVoice.filt.frequency.cancelScheduledValues(now);
+    moogVoice.filt.frequency.setValueAtTime(moogVoice.filt.frequency.value, now);
+    moogVoice.filt.frequency.exponentialRampToValueAtTime(80, now + 0.3);
+    const voice = moogVoice;
+    setTimeout(() => {
+      try { voice.osc1.stop(); voice.osc2.stop(); } catch(e){}
+    }, 400);
+  } catch(e) {}
+  moogVoice = null;
+}
+
+// Computer keyboard
+let activeKey = null;
+document.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  const semitone = KEY_MAP[e.key.toLowerCase()];
+  if (semitone !== undefined && audioCtx) {
+    activeKey = semitone;
+    playMoogNote(semitone);
+    // Highlight UI key
+    document.querySelectorAll('.mini-keys .key').forEach(k => k.classList.remove('active'));
+    const btn = document.querySelector(`.mini-keys .key[data-note="${semitone}"]`);
+    if (btn) btn.classList.add('active');
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  const semitone = KEY_MAP[e.key.toLowerCase()];
+  if (semitone !== undefined && semitone === activeKey) {
+    releaseMoogNote();
+    activeKey = null;
+    document.querySelectorAll('.mini-keys .key').forEach(k => k.classList.remove('active'));
+  }
+});
+
+// Mouse/touch on UI keys
+document.querySelectorAll('.mini-keys .key').forEach(btn => {
+  const semitone = parseInt(btn.dataset.note);
+
+  btn.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    if (!audioCtx) return;
+    playMoogNote(semitone);
+    btn.classList.add('active');
+  });
+
+  btn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (!audioCtx) return;
+    playMoogNote(semitone);
+    btn.classList.add('active');
+  });
+
+  btn.addEventListener('mouseup', () => {
+    releaseMoogNote();
+    btn.classList.remove('active');
+  });
+
+  btn.addEventListener('mouseleave', () => {
+    releaseMoogNote();
+    btn.classList.remove('active');
+  });
+
+  btn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    releaseMoogNote();
+    btn.classList.remove('active');
+  });
 });
 </script>
 </body>
