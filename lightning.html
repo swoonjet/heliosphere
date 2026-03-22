@@ -479,41 +479,38 @@ function norm(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
 // mixes pre-rendered drum samples in software.
 // ============================================================
 
-const VOICE_COUNT = 8; // max simultaneous sounds
-let voices = [];       // { samples: Float32Array, pos: int, active: bool }
-let drums = {};        // named Float32Array samples
-let processorNode = null;
+let drumBuffers = {};  // AudioBuffer objects
+let keepAliveOsc = null; // silent oscillator to prevent context suspension
 
 function buildAudio() {
   masterGain = audioCtx.createGain();
   masterGain.gain.value = 0.65;
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 2048;
-
-  // Render drums as raw Float32Arrays (not AudioBuffers)
-  const sr = audioCtx.sampleRate;
-  drums.kick     = renderDrum(sr, 'kick', 1.0);
-  drums.kickLow  = renderDrum(sr, 'kick', 0.7);
-  drums.snap     = renderDrum(sr, 'snap', 1.0);
-  drums.hat      = renderDrum(sr, 'hat', 1.0);
-  drums.hatOpen  = renderDrum(sr, 'hatOpen', 1.0);
-  drums.tom      = renderDrum(sr, 'tom', 1.0);
-  drums.tomLow   = renderDrum(sr, 'tom', 0.7);
-  drums.rim      = renderDrum(sr, 'rim', 1.0);
-  drums.click    = renderDrum(sr, 'click', 1.0);
-
-  // Init voice pool
-  voices = [];
-  for (let i = 0; i < VOICE_COUNT; i++) {
-    voices.push({ samples: null, pos: 0, active: false, rate: 1.0 });
-  }
-
-  // Single ScriptProcessorNode — the ONLY audio node besides gain
-  processorNode = audioCtx.createScriptProcessor(2048, 0, 1);
-  processorNode.onaudioprocess = mixVoices;
-  processorNode.connect(masterGain);
   masterGain.connect(analyser);
   analyser.connect(audioCtx.destination);
+
+  // KEEP-ALIVE: silent oscillator prevents iOS/Safari from suspending context
+  keepAliveOsc = audioCtx.createOscillator();
+  const silentGain = audioCtx.createGain();
+  silentGain.gain.value = 0; // completely silent
+  keepAliveOsc.connect(silentGain);
+  silentGain.connect(audioCtx.destination);
+  keepAliveOsc.start();
+
+  // Pre-render drums as AudioBuffers
+  const sr = audioCtx.sampleRate;
+  const names = ['kick','kickLow','snap','hat','hatOpen','tom','tomLow','rim','click'];
+  const configs = [
+    ['kick',1.0],['kick',0.7],['snap',1.0],['hat',1.0],['hatOpen',1.0],
+    ['tom',1.0],['tom',0.7],['rim',1.0],['click',1.0]
+  ];
+  configs.forEach((cfg, i) => {
+    const raw = renderDrum(sr, cfg[0], cfg[1]);
+    const buf = audioCtx.createBuffer(1, raw.length, sr);
+    buf.getChannelData(0).set(raw);
+    drumBuffers[names[i]] = buf;
+  });
 }
 
 function renderDrum(sr, type, pitch) {
@@ -595,44 +592,33 @@ function renderDrum(sr, type, pitch) {
   return data;
 }
 
-// The audio callback — mixes all active voices into output
-function mixVoices(e) {
-  const output = e.outputBuffer.getChannelData(0);
-  const len = output.length;
-
-  // Clear
-  for (let i = 0; i < len; i++) output[i] = 0;
-
-  // Mix active voices
-  for (const v of voices) {
-    if (!v.active || !v.samples) continue;
-    const rate = v.rate;
-    for (let i = 0; i < len; i++) {
-      const srcIdx = Math.floor(v.pos);
-      if (srcIdx >= v.samples.length) {
-        v.active = false;
-        break;
-      }
-      output[i] += v.samples[srcIdx];
-      v.pos += rate;
-    }
+// Trigger drum — creates one BufferSource node (auto-disposes when done)
+function triggerDrum(name, rate = 1.0) {
+  if (!audioCtx || !masterGain || !drumBuffers[name]) return;
+  try {
+    const src = audioCtx.createBufferSource();
+    src.buffer = drumBuffers[name];
+    src.playbackRate.value = clamp(rate * pitchMult, 0.3, 3.0);
+    src.connect(masterGain);
+    src.start();
+  } catch(e) {
+    // Context dead — try to revive
+    reviveAudio();
   }
 }
 
-// Trigger a drum by assigning it to the next free voice (or stealing oldest)
-let nextVoice = 0;
-
-function triggerDrum(name, rate = 1.0) {
-  const d = drums[name];
-  if (!d) return;
-
-  // Find a free voice, or steal the next one round-robin
-  let v = voices[nextVoice];
-  v.samples = d;
-  v.pos = 0;
-  v.rate = clamp(rate * pitchMult, 0.3, 3.0);
-  v.active = true;
-  nextVoice = (nextVoice + 1) % VOICE_COUNT;
+// Watchdog: if context dies, rebuild it
+function reviveAudio() {
+  if (!isRunning) return;
+  try {
+    if (audioCtx && audioCtx.state === 'closed') {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      buildAudio();
+      audioCtx.resume();
+    } else if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  } catch(e) {}
 }
 
 function playStrikePerc(strike) {
@@ -1240,9 +1226,9 @@ function stopAll() {
     else clearInterval(simInterval);
     simInterval = null;
   }
-  if (processorNode) { try { processorNode.disconnect(); } catch(e) {} processorNode = null; }
+  if (keepAliveOsc) { try { keepAliveOsc.stop(); } catch(e) {} keepAliveOsc = null; }
   if (audioCtx) { try { audioCtx.close(); } catch(e) {} }
-  audioCtx = null; masterGain = null; drums = {}; voices = [];
+  audioCtx = null; masterGain = null; drumBuffers = {};
   document.getElementById('startBtn').textContent = 'LISTEN';
   document.getElementById('startBtn').classList.remove('active');
   setConnectionState('');
