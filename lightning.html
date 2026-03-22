@@ -633,9 +633,8 @@ function connectBlitzortung() {
 
   function tryConnect() {
     if (wsIdx >= WS_URLS.length) {
-      // All endpoints failed → use simulation
-      console.log('All Blitzortung WS failed, using simulation');
-      startSimulation();
+      // All endpoints failed — simulation already running
+      console.log('All Blitzortung WS failed, simulation continues');
       return;
     }
 
@@ -652,14 +651,13 @@ function connectBlitzortung() {
 
     const timeout = setTimeout(() => {
       if (!wsConnected) {
-        ws.close();
+        try { ws.close(); } catch(e) {}
         wsIdx++;
         tryConnect();
       }
-    }, 5000);
+    }, 2000); // 2s timeout per endpoint
 
     ws.onopen = () => {
-      // Subscribe to all strikes
       ws.send(JSON.stringify({ a: 111 }));
     };
 
@@ -667,6 +665,9 @@ function connectBlitzortung() {
       clearTimeout(timeout);
       if (!wsConnected) {
         wsConnected = true;
+        // Kill simulation — we have real data
+        if (simInterval) { clearInterval(simInterval); simInterval = null; }
+        useSimulation = false;
         setConnectionState('live');
       }
 
@@ -675,16 +676,14 @@ function connectBlitzortung() {
         if (data && data.lat !== undefined) {
           handleStrike(data);
         }
-      } catch (e) {
-        // Decode error — try raw parse
-      }
+      } catch (e) {}
     };
 
     ws.onerror = () => {
       clearTimeout(timeout);
       if (!wsConnected) {
         wsIdx++;
-        setTimeout(tryConnect, 500);
+        setTimeout(tryConnect, 300);
       }
     };
 
@@ -1164,11 +1163,12 @@ function startAll() {
   document.getElementById('startBtn').textContent = 'STOP';
   document.getElementById('startBtn').classList.add('active');
 
+  // Start simulation IMMEDIATELY so there's always sound
+  startSimulation();
+  // Try WebSocket in background — if it connects, kill simulation
   connectBlitzortung();
   drawMap();
 }
-
-let seenIds = new Set();
 
 function stopAll() {
   isRunning = false;
