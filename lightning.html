@@ -696,27 +696,40 @@ function connectBlitzortung() {
       ws.send(JSON.stringify({ a: 111 }));
     };
 
+    let wsDecodeSuccesses = 0;
+
     ws.onmessage = (evt) => {
       clearTimeout(timeout);
-      if (!wsConnected) {
-        wsConnected = true;
-        // Kill simulation — we have real data
-        if (simInterval) {
-          if (simInterval.main) clearInterval(simInterval.main);
-          if (simInterval.burst) clearInterval(simInterval.burst);
-          else clearInterval(simInterval);
-          simInterval = null;
-        }
-        useSimulation = false;
-        setConnectionState('live');
-      }
 
+      // Try to decode the message
+      let data = null;
       try {
-        const data = parseStrikeMessage(evt.data);
-        if (data && data.lat !== undefined) {
-          handleStrike(data);
-        }
+        data = parseStrikeMessage(evt.data);
       } catch (e) {}
+
+      if (data && data.lat !== undefined && !isNaN(data.lat) && Math.abs(data.lat) <= 90) {
+        wsDecodeSuccesses++;
+        handleStrike(data);
+
+        // Only kill simulation after 10 SUCCESSFUL decodes — proof it works
+        if (!wsConnected && wsDecodeSuccesses >= 10) {
+          wsConnected = true;
+          if (simInterval) {
+            if (simInterval.main) clearInterval(simInterval.main);
+            if (simInterval.burst) clearInterval(simInterval.burst);
+            else clearInterval(simInterval);
+            simInterval = null;
+          }
+          useSimulation = false;
+          setConnectionState('live');
+        }
+      }
+      // If we get 50+ messages but 0 decodes, WS is useless — close it
+      if (wsDecodeSuccesses === 0 && evt.target._msgCount > 50) {
+        try { ws.close(); } catch(e) {}
+      }
+      if (!evt.target._msgCount) evt.target._msgCount = 0;
+      evt.target._msgCount++;
     };
 
     ws.onerror = () => {
