@@ -477,6 +477,9 @@ function norm(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
 // AUDIO
 // ============================================================
 
+// Pre-rendered drum buffers — created once, replayed cheaply
+let drumBuffers = {};
+
 function buildAudio() {
   masterGain = audioCtx.createGain();
   masterGain.gain.value = 0.6;
@@ -484,134 +487,147 @@ function buildAudio() {
   analyser.fftSize = 2048;
   masterGain.connect(analyser);
   analyser.connect(audioCtx.destination);
+
+  // Pre-render all drum sounds into AudioBuffers
+  const sr = audioCtx.sampleRate;
+  drumBuffers.kick = renderKick(sr);
+  drumBuffers.kickLow = renderKick(sr, 0.7);
+  drumBuffers.snap = renderSnap(sr);
+  drumBuffers.hat = renderHat(sr, 0.02);
+  drumBuffers.hatOpen = renderHat(sr, 0.1);
+  drumBuffers.tom = renderTom(sr, 1.0);
+  drumBuffers.tomLow = renderTom(sr, 0.7);
+  drumBuffers.rim = renderRim(sr);
+  drumBuffers.click = renderClick(sr);
 }
 
-// --- Percussion voices ---
+function renderKick(sr, pitch = 1.0) {
+  const len = Math.floor(sr * 0.25);
+  const buf = audioCtx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    const env = Math.exp(-t * 12);
+    const freq = 150 * pitch * Math.exp(-t * 20) + 30 * pitch;
+    d[i] = Math.sin(2 * Math.PI * freq * t) * env * 0.5;
+    // Click transient
+    if (i < sr * 0.005) d[i] += (Math.random() * 2 - 1) * 0.3 * (1 - i / (sr * 0.005));
+  }
+  return buf;
+}
+
+function renderSnap(sr) {
+  const len = Math.floor(sr * 0.08);
+  const buf = audioCtx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    const env = Math.exp(-t * 40);
+    // Noise + pitched body
+    d[i] = ((Math.random() * 2 - 1) * 0.4 + Math.sin(2 * Math.PI * 400 * t) * 0.2) * env;
+  }
+  return buf;
+}
+
+function renderHat(sr, decay = 0.02) {
+  const len = Math.floor(sr * (decay + 0.01));
+  const buf = audioCtx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    const env = Math.exp(-t / decay * 3);
+    // Band-limited noise (simulate by mixing high-freq sines)
+    let v = 0;
+    v += Math.sin(2 * Math.PI * 7523 * t) * 0.2;
+    v += Math.sin(2 * Math.PI * 9137 * t) * 0.15;
+    v += Math.sin(2 * Math.PI * 11743 * t) * 0.1;
+    v += (Math.random() * 2 - 1) * 0.15;
+    d[i] = v * env;
+  }
+  return buf;
+}
+
+function renderTom(sr, pitch = 1.0) {
+  const len = Math.floor(sr * 0.2);
+  const buf = audioCtx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    const env = Math.exp(-t * 15);
+    const freq = (180 * pitch) * Math.exp(-t * 8) + 60 * pitch;
+    d[i] = (Math.sin(2 * Math.PI * freq * t) * 0.6 + Math.sin(2 * Math.PI * freq * 1.5 * t) * 0.15) * env;
+  }
+  return buf;
+}
+
+function renderRim(sr) {
+  const len = Math.floor(sr * 0.03);
+  const buf = audioCtx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    const env = Math.exp(-t * 100);
+    d[i] = (Math.sin(2 * Math.PI * 800 * t) * 0.4 + Math.sin(2 * Math.PI * 1200 * t) * 0.2) * env;
+  }
+  return buf;
+}
+
+function renderClick(sr) {
+  const len = Math.floor(sr * 0.01);
+  const buf = audioCtx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 300) * 0.3;
+  }
+  return buf;
+}
+
+// Play a pre-rendered buffer — only creates 3 nodes: source + gain + panner
+function triggerDrum(bufferName, vol = 0.5, pan = 0, rate = 1.0) {
+  if (!audioCtx || !masterGain || !drumBuffers[bufferName]) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = drumBuffers[bufferName];
+  src.playbackRate.value = clamp(rate * pitchMult, 0.2, 4.0);
+  const gain = audioCtx.createGain();
+  gain.gain.value = clamp(vol, 0, 1);
+  const panner = audioCtx.createStereoPanner();
+  panner.pan.value = clamp(pan, -1, 1);
+  src.connect(gain);
+  gain.connect(panner);
+  panner.connect(masterGain);
+  src.start();
+  // No need to stop — BufferSource auto-stops at end of buffer
+}
+
+// --- Map strike to percussion ---
 
 function playStrikePerc(strike) {
   if (!audioCtx || !masterGain) return;
-  const now = audioCtx.currentTime;
 
   const { lat, lon, pol, region } = strike;
-
-  // Pan from longitude
   const pan = clamp(lon / 180, -1, 1);
+  const latRate = 0.7 + (Math.abs(lat) / 90) * 0.8; // pitch shift from latitude
 
-  // Pitch from latitude (equator = low, poles = high)
-  const latPitch = 0.5 + (Math.abs(lat) / 90) * 1.0;
-
-  // Polarity affects timbre
-  const isPositive = pol > 0;
-
-  // Region affects which voice dominates
-  const regionVoice = getRegionVoice(region);
-
-  const panner = audioCtx.createStereoPanner();
-  panner.pan.value = pan;
-
-  switch (regionVoice) {
-    case 'kick': {
-      // Deep strike — Americas
-      const osc = audioCtx.createOscillator();
-      const env = audioCtx.createGain();
-      osc.type = 'sine';
-      const baseFreq = 80 * pitchMult * (isPositive ? 1.0 : 0.8);
-      osc.frequency.setValueAtTime(baseFreq * latPitch, now);
-      osc.frequency.exponentialRampToValueAtTime(25 * pitchMult, now + decayTime * 0.8);
-      env.gain.setValueAtTime(0.18, now);
-      env.gain.exponentialRampToValueAtTime(0.001, now + decayTime);
-      osc.connect(env); env.connect(panner); panner.connect(masterGain);
-      osc.start(now); osc.stop(now + decayTime + 0.05);
+  switch (region) {
+    case 'americas':
+      triggerDrum(pol > 0 ? 'kick' : 'kickLow', 0.6, pan, latRate);
       break;
-    }
-    case 'snap': {
-      // Sharp crack — Europe
-      const osc = audioCtx.createOscillator();
-      const env = audioCtx.createGain();
-      osc.type = 'square';
-      osc.frequency.value = 400 * latPitch * pitchMult;
-      env.gain.setValueAtTime(0.08, now);
-      env.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
-      osc.connect(env); env.connect(panner); panner.connect(masterGain);
-      osc.start(now); osc.stop(now + 0.04);
-      // Noise tail
-      const nLen = 0.03 + decayTime * 0.1;
-      playNoiseHit(nLen, 0.06, 3000 + latPitch * 4000, pan);
+    case 'europe':
+      triggerDrum('snap', 0.5, pan, latRate * 1.2);
       break;
-    }
-    case 'hat': {
-      // Metallic tick — Asia
-      const open = Math.random() < 0.15;
-      const nLen = open ? decayTime * 0.3 : 0.015;
-      playNoiseHit(nLen, 0.07, 8000 + Math.random() * 4000, pan);
+    case 'asia':
+      triggerDrum(Math.random() < 0.15 ? 'hatOpen' : 'hat', 0.4, pan, 0.8 + Math.random() * 0.4);
       break;
-    }
-    case 'tom': {
-      // Resonant tone — Africa
-      const osc = audioCtx.createOscillator();
-      const env = audioCtx.createGain();
-      osc.type = isPositive ? 'triangle' : 'sine';
-      const freq = 120 + latPitch * 180;
-      osc.frequency.setValueAtTime(freq * pitchMult, now);
-      osc.frequency.exponentialRampToValueAtTime(freq * pitchMult * 0.5, now + decayTime * 0.6);
-      env.gain.setValueAtTime(0.12, now);
-      env.gain.exponentialRampToValueAtTime(0.001, now + decayTime * 0.6);
-      osc.connect(env); env.connect(panner); panner.connect(masterGain);
-      osc.start(now); osc.stop(now + decayTime * 0.7);
+    case 'africa':
+      triggerDrum(pol > 0 ? 'tom' : 'tomLow', 0.5, pan, latRate);
       break;
-    }
-    case 'rim': {
-      // Click — Oceania
-      const osc = audioCtx.createOscillator();
-      const env = audioCtx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.value = 600 * latPitch * pitchMult;
-      env.gain.setValueAtTime(0.1, now);
-      env.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
-      osc.connect(env); env.connect(panner); panner.connect(masterGain);
-      osc.start(now); osc.stop(now + 0.04);
+    case 'oceania':
+      triggerDrum('rim', 0.4, pan, latRate * 1.1);
       break;
-    }
+    default:
+      triggerDrum('click', 0.3, pan, latRate);
   }
-}
-
-function playNoiseHit(duration, vol, freq, pan) {
-  if (!audioCtx) return;
-  const now = audioCtx.currentTime;
-  const bufSize = Math.max(1, Math.floor(audioCtx.sampleRate * (duration + 0.01)));
-  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) d[i] = Math.random() * 2 - 1;
-  const src = audioCtx.createBufferSource(); src.buffer = buf;
-  const hp = audioCtx.createBiquadFilter();
-  hp.type = 'highpass'; hp.frequency.value = freq;
-  const env = audioCtx.createGain();
-  env.gain.setValueAtTime(vol, now);
-  env.gain.exponentialRampToValueAtTime(0.001, now + duration);
-  const panner = audioCtx.createStereoPanner();
-  panner.pan.value = clamp(pan, -1, 1);
-  src.connect(hp); hp.connect(env); env.connect(panner); panner.connect(masterGain);
-  src.start(now); src.stop(now + duration + 0.01);
-}
-
-// Cluster burst for dense activity
-function playClusterRoll(count) {
-  if (!audioCtx) return;
-  for (let i = 0; i < Math.min(count, 8); i++) {
-    setTimeout(() => {
-      playNoiseHit(0.008 + Math.random() * 0.015, 0.04, 4000 + Math.random() * 8000, (Math.random() - 0.5) * 1.5);
-    }, i * 15);
-  }
-}
-
-function getRegionVoice(region) {
-  if (region === 'americas') return 'kick';
-  if (region === 'europe') return 'snap';
-  if (region === 'asia') return 'hat';
-  if (region === 'africa') return 'tom';
-  if (region === 'oceania') return 'rim';
-  // Fallback: choose by current counts
-  return ['kick', 'snap', 'hat', 'tom', 'rim'][Math.floor(Math.random() * 5)];
 }
 
 function classifyRegion(lat, lon) {
