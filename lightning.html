@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fulgurite — Live Lightning Percussion</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #f3f0eb;
+    --text: #666;
+    --text-bright: #222;
+    --text-dim: #999;
+    --text-ghost: #bbb;
+    --border: #d0ccc4;
+    --border-hover: #a09888;
+    --track: #e0ddd6;
+    --accent: #c85a20;
+    --accent-dim: rgba(200,90,32,0.15);
+    --strike: #c85a20;
+    --strike-glow: rgba(200,90,32,0.3);
+    --pos: #7a8a40;
+    --neg: #c85a20;
+  }
+
+  body.dark {
+    --bg: #000;
+    --text: #888;
+    --text-bright: #ddd;
+    --text-dim: #555;
+    --text-ghost: #333;
+    --border: #222;
+    --border-hover: #444;
+    --track: #181818;
+    --accent: #f0a050;
+    --accent-dim: rgba(240,160,80,0.12);
+    --strike: #ffe080;
+    --strike-glow: rgba(255,224,128,0.4);
+    --pos: #80c0ff;
+    --neg: #ff8060;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    height: 100vh;
+    overflow: hidden;
+    cursor: crosshair;
+    user-select: none;
+    transition: background 0.6s, color 0.6s;
+  }
+
+  canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
+  canvas#mapCanvas { z-index: 1; }
+  canvas#strikeCanvas { z-index: 2; pointer-events: none; }
+
+  /* Info strip */
+  .info-strip {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
+    pointer-events: none;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .info-strip .sep { margin: 0 6px; color: var(--text-ghost); }
+
+  /* HUD */
+  .hud {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 28px 28px 0;
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .hud-left, .hud-right { display: flex; flex-direction: column; gap: 12px; }
+  .hud-right { align-items: flex-end; }
+
+  .metric .label {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .metric .value {
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--text-bright);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric .value .unit {
+    font-size: 0.4em;
+    color: var(--text-dim);
+    margin-left: 4px;
+  }
+
+  .metric .sub {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .metric .bar-track {
+    width: 140px;
+    height: 3px;
+    background: var(--track);
+    margin-top: 5px;
+    border-radius: 1px;
+    position: relative;
+  }
+
+  .hud-right .bar-track { margin-left: auto; }
+
+  .metric .bar-fill {
+    height: 100%;
+    border-radius: 1px;
+    background: var(--accent);
+    transition: width 0.3s ease;
+    position: absolute;
+    top: 0; left: 0;
+  }
+
+  /* Feed */
+  .feed {
+    position: fixed;
+    left: 28px;
+    bottom: 76px;
+    z-index: 10;
+    pointer-events: none;
+    width: 260px;
+  }
+
+  .feed-item {
+    font-size: 8px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+    opacity: 0;
+    animation: feedIn 0.2s forwards;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .feed-item .mag { color: var(--accent); font-weight: 500; }
+
+  @keyframes feedIn { to { opacity: 1; } }
+
+  /* Region meters */
+  .regions {
+    position: fixed;
+    right: 28px;
+    bottom: 76px;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+  }
+
+  .region-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 8px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+
+  .region-bar {
+    width: 60px;
+    height: 3px;
+    background: var(--track);
+    border-radius: 1px;
+    position: relative;
+  }
+
+  .region-fill {
+    height: 100%;
+    border-radius: 1px;
+    background: var(--accent);
+    transition: width 0.5s ease;
+    position: absolute;
+    top: 0; left: 0;
+  }
+
+  /* Center */
+  .center-ui {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    pointer-events: auto;
+  }
+
+  .start-btn {
+    padding: 12px 36px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+
+  .start-btn:hover { border-color: var(--border-hover); color: var(--text-bright); }
+  .start-btn.active { border-color: var(--accent); color: var(--accent); }
+
+  .status-line {
+    font-size: 8px;
+    color: var(--text-ghost);
+    letter-spacing: 0.08em;
+  }
+
+  /* Controls */
+  .controls-right {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+    pointer-events: auto;
+  }
+
+  .ctrl-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .ctrl-btn:hover { border-color: var(--border-hover); color: var(--text); }
+  .ctrl-btn.active { border-color: var(--accent); color: var(--accent); }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .slider-row label {
+    font-size: 8px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    width: 40px;
+    text-align: right;
+  }
+
+  .slider-row span {
+    font-size: 8px;
+    color: var(--text-dim);
+    width: 24px;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 80px;
+    height: 2px;
+    background: var(--track);
+    outline: none;
+    border-radius: 1px;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    cursor: pointer;
+  }
+
+  /* Flash */
+  .event-flash {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    opacity: 0;
+    z-index: 25;
+    pointer-events: none;
+    text-align: center;
+    color: var(--accent);
+  }
+
+  .event-flash.show { animation: flashIn 3s forwards; }
+  @keyframes flashIn {
+    0% { opacity: 0; }
+    8% { opacity: 1; }
+    60% { opacity: 0.5; }
+    100% { opacity: 0; }
+  }
+
+  /* Connection indicator */
+  .conn-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-ghost);
+    display: inline-block;
+    margin-right: 4px;
+    transition: background 0.3s;
+  }
+  .conn-dot.live { background: var(--pos); }
+  .conn-dot.sim { background: var(--accent); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+</style>
+</head>
+<body>
+
+<canvas id="mapCanvas"></canvas>
+<canvas id="strikeCanvas"></canvas>
+
+<div class="info-strip">
+  <span><span class="conn-dot" id="connDot"></span><span id="connLabel">CONNECTING</span></span>
+  <span class="sep">·</span>
+  <span id="infoTime">—</span>
+  <span class="sep">·</span>
+  <span id="infoRate">—</span>
+  <span class="sep">·</span>
+  <span id="infoTotal">—</span>
+</div>
+
+<div class="hud">
+  <div class="hud-left">
+    <div class="metric">
+      <div class="label">Strikes / Minute</div>
+      <div class="value" id="vRate">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bRate" style="width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="label">Latest Strike</div>
+      <div class="value" id="vLatest" style="font-size:18px">—</div>
+      <div class="sub" id="vLatestLoc">—</div>
+    </div>
+    <div class="metric">
+      <div class="label">Active Regions</div>
+      <div class="value" id="vRegions" style="font-size:18px">—</div>
+    </div>
+  </div>
+
+  <div class="hud-right">
+    <div class="metric">
+      <div class="label">Peak Rate</div>
+      <div class="value" id="vPeak">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bPeak" style="width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="label">Density</div>
+      <div class="value" id="vDensity">—</div>
+      <div class="sub">strikes per 10s window</div>
+    </div>
+    <div class="metric">
+      <div class="label">Polarity</div>
+      <div class="value" id="vPolarity" style="font-size:18px">—</div>
+    </div>
+  </div>
+</div>
+
+<div class="feed" id="feed"></div>
+
+<div class="regions">
+  <div class="region-row">AMERICAS<div class="region-bar"><div class="region-fill" id="rAmericas" style="width:0%"></div></div></div>
+  <div class="region-row">EUROPE<div class="region-bar"><div class="region-fill" id="rEurope" style="width:0%"></div></div></div>
+  <div class="region-row">AFRICA<div class="region-bar"><div class="region-fill" id="rAfrica" style="width:0%"></div></div></div>
+  <div class="region-row">ASIA<div class="region-bar"><div class="region-fill" id="rAsia" style="width:0%"></div></div></div>
+  <div class="region-row">OCEANIA<div class="region-bar"><div class="region-fill" id="rOceania" style="width:0%"></div></div></div>
+</div>
+
+<div class="event-flash" id="eventFlash"></div>
+
+<div class="center-ui">
+  <button class="start-btn" id="startBtn">LISTEN</button>
+  <div class="status-line" id="statusLine">GLOBAL LIGHTNING NETWORK</div>
+</div>
+
+<div class="controls-right">
+  <div class="slider-row">
+    <label>VOL</label>
+    <input type="range" id="slVol" min="0" max="100" value="60">
+    <span id="sVol">60</span>
+  </div>
+  <div class="slider-row">
+    <label>DECAY</label>
+    <input type="range" id="slDecay" min="5" max="100" value="40">
+    <span id="sDecay">40</span>
+  </div>
+  <div class="slider-row">
+    <label>PITCH</label>
+    <input type="range" id="slPitch" min="20" max="200" value="100">
+    <span id="sPitch">100</span>
+  </div>
+  <button class="ctrl-btn active" id="themeToggle">DARK</button>
+</div>
+
+<script>
+// ============================================================
+// FULGURITE — Live lightning → percussion
+//
+// Data: Blitzortung WebSocket (real-time global lightning)
+// Fallback: USGS significant earthquake feed + modeled lightning
+// Every strike = a percussion hit
+// ============================================================
+
+// Blitzortung WebSocket endpoints
+const WS_URLS = [
+  'wss://ws1.blitzortung.org',
+  'wss://ws7.blitzortung.org',
+  'wss://ws8.blitzortung.org',
+];
+
+let audioCtx, masterGain, analyser;
+let isRunning = false;
+let lightMode = true;
+let decayTime = 0.4;
+let pitchMult = 1.0;
+
+let ws = null;
+let wsConnected = false;
+let useSimulation = false;
+let simInterval = null;
+
+// Strike buffer
+let strikes = [];         // recent strikes [{lat, lon, time, pol, region}]
+let strikeFlashes = [];   // visual
+let strikeCount = 0;
+let totalStrikes = 0;
+let rateHistory = [];     // strikes per second over last 60s
+let peakRate = 0;
+let regionCounts = { americas: 0, europe: 0, africa: 0, asia: 0, oceania: 0 };
+let regionDecay = { americas: 0, europe: 0, africa: 0, asia: 0, oceania: 0 };
+let lastStrike = null;
+let posCount = 0, negCount = 0;
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function norm(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
+
+// ============================================================
+// AUDIO
+// ============================================================
+
+function buildAudio() {
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.6;
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  masterGain.connect(analyser);
+  analyser.connect(audioCtx.destination);
+}
+
+// --- Percussion voices ---
+
+function playStrikePerc(strike) {
+  if (!audioCtx || !masterGain) return;
+  const now = audioCtx.currentTime;
+
+  const { lat, lon, pol, region } = strike;
+
+  // Pan from longitude
+  const pan = clamp(lon / 180, -1, 1);
+
+  // Pitch from latitude (equator = low, poles = high)
+  const latPitch = 0.5 + (Math.abs(lat) / 90) * 1.0;
+
+  // Polarity affects timbre
+  const isPositive = pol > 0;
+
+  // Region affects which voice dominates
+  const regionVoice = getRegionVoice(region);
+
+  const panner = audioCtx.createStereoPanner();
+  panner.pan.value = pan;
+
+  switch (regionVoice) {
+    case 'kick': {
+      // Deep strike — Americas
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      osc.type = 'sine';
+      const baseFreq = 80 * pitchMult * (isPositive ? 1.0 : 0.8);
+      osc.frequency.setValueAtTime(baseFreq * latPitch, now);
+      osc.frequency.exponentialRampToValueAtTime(25 * pitchMult, now + decayTime * 0.8);
+      env.gain.setValueAtTime(0.18, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + decayTime);
+      osc.connect(env); env.connect(panner); panner.connect(masterGain);
+      osc.start(now); osc.stop(now + decayTime + 0.05);
+      break;
+    }
+    case 'snap': {
+      // Sharp crack — Europe
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 400 * latPitch * pitchMult;
+      env.gain.setValueAtTime(0.08, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+      osc.connect(env); env.connect(panner); panner.connect(masterGain);
+      osc.start(now); osc.stop(now + 0.04);
+      // Noise tail
+      const nLen = 0.03 + decayTime * 0.1;
+      playNoiseHit(nLen, 0.06, 3000 + latPitch * 4000, pan);
+      break;
+    }
+    case 'hat': {
+      // Metallic tick — Asia
+      const open = Math.random() < 0.15;
+      const nLen = open ? decayTime * 0.3 : 0.015;
+      playNoiseHit(nLen, 0.07, 8000 + Math.random() * 4000, pan);
+      break;
+    }
+    case 'tom': {
+      // Resonant tone — Africa
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      osc.type = isPositive ? 'triangle' : 'sine';
+      const freq = 120 + latPitch * 180;
+      osc.frequency.setValueAtTime(freq * pitchMult, now);
+      osc.frequency.exponentialRampToValueAtTime(freq * pitchMult * 0.5, now + decayTime * 0.6);
+      env.gain.setValueAtTime(0.12, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + decayTime * 0.6);
+      osc.connect(env); env.connect(panner); panner.connect(masterGain);
+      osc.start(now); osc.stop(now + decayTime * 0.7);
+      break;
+    }
+    case 'rim': {
+      // Click — Oceania
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = 600 * latPitch * pitchMult;
+      env.gain.setValueAtTime(0.1, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
+      osc.connect(env); env.connect(panner); panner.connect(masterGain);
+      osc.start(now); osc.stop(now + 0.04);
+      break;
+    }
+  }
+}
+
+function playNoiseHit(duration, vol, freq, pan) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const bufSize = Math.max(1, Math.floor(audioCtx.sampleRate * (duration + 0.01)));
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) d[i] = Math.random() * 2 - 1;
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const hp = audioCtx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = freq;
+  const env = audioCtx.createGain();
+  env.gain.setValueAtTime(vol, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  const panner = audioCtx.createStereoPanner();
+  panner.pan.value = clamp(pan, -1, 1);
+  src.connect(hp); hp.connect(env); env.connect(panner); panner.connect(masterGain);
+  src.start(now); src.stop(now + duration + 0.01);
+}
+
+// Cluster burst for dense activity
+function playClusterRoll(count) {
+  if (!audioCtx) return;
+  for (let i = 0; i < Math.min(count, 8); i++) {
+    setTimeout(() => {
+      playNoiseHit(0.008 + Math.random() * 0.015, 0.04, 4000 + Math.random() * 8000, (Math.random() - 0.5) * 1.5);
+    }, i * 15);
+  }
+}
+
+function getRegionVoice(region) {
+  if (region === 'americas') return 'kick';
+  if (region === 'europe') return 'snap';
+  if (region === 'asia') return 'hat';
+  if (region === 'africa') return 'tom';
+  if (region === 'oceania') return 'rim';
+  // Fallback: choose by current counts
+  return ['kick', 'snap', 'hat', 'tom', 'rim'][Math.floor(Math.random() * 5)];
+}
+
+function classifyRegion(lat, lon) {
+  // Simple geographic classification
+  if (lon >= -170 && lon <= -30) return 'americas';
+  if (lon >= -30 && lon <= 45 && lat >= 35) return 'europe';
+  if (lon >= -30 && lon <= 55 && lat < 35) return 'africa';
+  if (lon >= 45 && lon <= 180) return lat > -10 ? 'asia' : 'oceania';
+  if (lon >= -180 && lon <= -170) return 'oceania';
+  return 'asia';
+}
+
+// ============================================================
+// BLITZORTUNG WEBSOCKET
+// ============================================================
+
+function connectBlitzortung() {
+  let wsIdx = 0;
+
+  function tryConnect() {
+    if (wsIdx >= WS_URLS.length) {
+      // All endpoints failed → use simulation
+      console.log('All Blitzortung WS failed, using simulation');
+      startSimulation();
+      return;
+    }
+
+    const url = WS_URLS[wsIdx];
+    console.log(`Trying ${url}...`);
+
+    try {
+      ws = new WebSocket(url);
+    } catch(e) {
+      wsIdx++;
+      tryConnect();
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      if (!wsConnected) {
+        ws.close();
+        wsIdx++;
+        tryConnect();
+      }
+    }, 5000);
+
+    ws.onopen = () => {
+      // Subscribe to all strikes
+      ws.send(JSON.stringify({ a: 111 }));
+    };
+
+    ws.onmessage = (evt) => {
+      clearTimeout(timeout);
+      if (!wsConnected) {
+        wsConnected = true;
+        setConnectionState('live');
+      }
+
+      try {
+        const data = parseStrikeMessage(evt.data);
+        if (data && data.lat !== undefined) {
+          handleStrike(data);
+        }
+      } catch (e) {
+        // Decode error — try raw parse
+      }
+    };
+
+    ws.onerror = () => {
+      clearTimeout(timeout);
+      if (!wsConnected) {
+        wsIdx++;
+        setTimeout(tryConnect, 500);
+      }
+    };
+
+    ws.onclose = () => {
+      if (wsConnected && isRunning) {
+        // Reconnect after brief delay
+        wsConnected = false;
+        setTimeout(() => {
+          if (isRunning) {
+            wsIdx = 0;
+            tryConnect();
+          }
+        }, 3000);
+      }
+    };
+  }
+
+  tryConnect();
+}
+
+function parseStrikeMessage(raw) {
+  // Blitzortung uses a custom character encoding for numbers.
+  // Attempt decode: replace known Unicode substitutions back to digits.
+  let decoded = raw;
+
+  // The encoding maps certain Unicode chars to digit sequences.
+  // Build a decode table from observed patterns.
+  const charMap = {
+    '\u010D': '2',  // č
+    '\u0106': '3',  // Ć
+    '\u0119': '4',  // ę
+    '\u0117': '5',  // ė
+    '\u010F': '6',  // ď
+    '\u0148': '7',  // ň
+    '\u0159': '8',  // ř
+    '\u0165': '9',  // ť
+    '\u017E': '0',  // ž
+    '\u0161': '1',  // š
+  };
+
+  for (const [char, digit] of Object.entries(charMap)) {
+    decoded = decoded.split(char).join(digit);
+  }
+
+  try {
+    const obj = JSON.parse(decoded);
+    return {
+      lat: parseFloat(obj.lat) || 0,
+      lon: parseFloat(obj.lon) || 0,
+      time: obj.time || Date.now() * 1000000,
+      pol: obj.pol || 0,
+      region: classifyRegion(parseFloat(obj.lat) || 0, parseFloat(obj.lon) || 0),
+    };
+  } catch(e) {
+    // If decode fails, try parsing as-is (some messages may be plain JSON)
+    try {
+      const obj = JSON.parse(raw);
+      if (obj.lat !== undefined) {
+        return {
+          lat: parseFloat(obj.lat) || 0,
+          lon: parseFloat(obj.lon) || 0,
+          time: obj.time || Date.now() * 1000000,
+          pol: obj.pol || 0,
+          region: classifyRegion(parseFloat(obj.lat) || 0, parseFloat(obj.lon) || 0),
+        };
+      }
+    } catch(e2) {}
+    return null;
+  }
+}
+
+// ============================================================
+// SIMULATION FALLBACK — models real global lightning patterns
+// ============================================================
+
+// Global lightning density by region and approximate time-of-day
+// Based on WWLLN climatology: ~45 strikes/second globally
+// Peaks: 14:00-18:00 local time, tropical convergence zones
+
+const HOTSPOTS = [
+  // [lat, lon, weight, name]
+  // Central Africa — #1 lightning region
+  [-1.5, 28, 3.0, 'Congo Basin'],
+  [6, 1, 2.0, 'Gulf of Guinea'],
+  // South America
+  [-3, -60, 2.0, 'Amazon Basin'],
+  [9, -72, 2.5, 'Lake Maracaibo'],
+  [-23, -47, 1.5, 'Sao Paulo'],
+  // Southeast Asia
+  [3, 105, 2.0, 'Maritime Continent'],
+  [15, 100, 1.5, 'Indochina'],
+  // North America
+  [28, -82, 1.5, 'Florida'],
+  [32, -95, 1.2, 'Central US'],
+  // India
+  [23, 80, 1.5, 'Central India'],
+  // Australia
+  [-15, 132, 1.0, 'Top End'],
+  // Europe (moderate)
+  [45, 12, 0.8, 'Mediterranean'],
+  [47, 8, 0.6, 'Alps'],
+  // Oceania
+  [-6, 147, 1.0, 'Papua NG'],
+];
+
+function startSimulation() {
+  useSimulation = true;
+  setConnectionState('sim');
+
+  // Generate 20-60 strikes per second based on time of day & hotspots
+  let burstTimer = 0;
+
+  simInterval = setInterval(() => {
+    if (!isRunning) return;
+
+    const now = new Date();
+    const utcHour = now.getUTCHours() + now.getUTCMinutes() / 60;
+
+    // Generate a batch (simulating ~40-80 strikes/sec, firing every 50ms)
+    const batchSize = 2 + Math.floor(Math.random() * 3);
+
+    for (let i = 0; i < batchSize; i++) {
+      // Pick a hotspot weighted by its weight + time-of-day factor
+      const spot = pickWeightedHotspot(utcHour);
+      const lat = spot[0] + (Math.random() - 0.5) * 15;
+      const lon = spot[1] + (Math.random() - 0.5) * 20;
+
+      handleStrike({
+        lat, lon,
+        time: Date.now() * 1000000,
+        pol: Math.random() < 0.85 ? -1 : 1,  // ~85% negative CG
+        region: classifyRegion(lat, lon),
+      });
+    }
+
+    // Occasional burst (simulating supercell)
+    burstTimer++;
+    if (burstTimer > 60 && Math.random() < 0.05) {
+      burstTimer = 0;
+      const spot = HOTSPOTS[Math.floor(Math.random() * HOTSPOTS.length)];
+      for (let i = 0; i < 8 + Math.floor(Math.random() * 12); i++) {
+        setTimeout(() => {
+          handleStrike({
+            lat: spot[0] + (Math.random() - 0.5) * 3,
+            lon: spot[1] + (Math.random() - 0.5) * 4,
+            time: Date.now() * 1000000,
+            pol: Math.random() < 0.9 ? -1 : 1,
+            region: classifyRegion(spot[0], spot[1]),
+          });
+        }, i * 20);
+      }
+    }
+  }, 50);
+}
+
+function pickWeightedHotspot(utcHour) {
+  // Weight each hotspot by its base weight * time-of-day factor
+  // Lightning peaks at ~15:00 local time
+  const weights = HOTSPOTS.map(spot => {
+    const localHour = (utcHour + spot[1] / 15 + 24) % 24;
+    // Peak at 15:00, minimum at 05:00
+    const timeFactor = 0.1 + 0.9 * Math.max(0, Math.sin((localHour - 5) / 24 * Math.PI * 2) * 0.5 + 0.5);
+    return spot[2] * timeFactor;
+  });
+
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * totalWeight;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return HOTSPOTS[i];
+  }
+  return HOTSPOTS[0];
+}
+
+// ============================================================
+// STRIKE HANDLER
+// ============================================================
+
+let strikeBuf = []; // buffer for rate calculation
+let clusterBuf = []; // recent strikes for cluster detection
+
+function handleStrike(data) {
+  if (!isRunning) return;
+
+  const { lat, lon, pol, region } = data;
+
+  // Stats
+  strikeCount++;
+  totalStrikes++;
+  strikeBuf.push(Date.now());
+  // Trim buffer to last 10 seconds
+  const cutoff10 = Date.now() - 10000;
+  while (strikeBuf.length && strikeBuf[0] < cutoff10) strikeBuf.shift();
+
+  // Region counts
+  regionCounts[region] = (regionCounts[region] || 0) + 1;
+  regionDecay[region] = (regionDecay[region] || 0) + 1;
+
+  // Polarity
+  if (pol > 0) posCount++; else negCount++;
+
+  lastStrike = data;
+
+  // Cluster detection — if >10 strikes in 500ms from similar location, trigger burst
+  clusterBuf.push({ lat, lon, time: Date.now() });
+  const cutoff500 = Date.now() - 500;
+  clusterBuf = clusterBuf.filter(s => s.time > cutoff500);
+  if (clusterBuf.length > 10 && Math.random() < 0.3) {
+    playClusterRoll(clusterBuf.length);
+  }
+
+  // Sound
+  playStrikePerc(data);
+
+  // Visual
+  const w = window.innerWidth, h = window.innerHeight;
+  const px = ((lon + 180) / 360) * w;
+  const py = ((90 - lat) / 180) * h;
+  strikeFlashes.push({
+    x: px, y: py,
+    size: 3 + Math.random() * 8,
+    alpha: 0.5 + Math.random() * 0.5,
+    age: 0,
+    pol: pol,
+  });
+}
+
+function setConnectionState(state) {
+  const dot = document.getElementById('connDot');
+  const label = document.getElementById('connLabel');
+  if (state === 'live') {
+    dot.className = 'conn-dot live';
+    label.textContent = 'LIVE BLITZORTUNG';
+  } else if (state === 'sim') {
+    dot.className = 'conn-dot sim';
+    label.textContent = 'MODELED LIGHTNING';
+  } else {
+    dot.className = 'conn-dot';
+    label.textContent = 'CONNECTING';
+  }
+}
+
+// ============================================================
+// VISUALIZATION
+// ============================================================
+
+const mapCanvas = document.getElementById('mapCanvas');
+const strikeCanvas = document.getElementById('strikeCanvas');
+const mapCtx = mapCanvas.getContext('2d');
+const sCtx = strikeCanvas.getContext('2d');
+const DPR = window.devicePixelRatio || 1;
+
+function resizeCanvases() {
+  [mapCanvas, strikeCanvas].forEach(c => {
+    c.width = window.innerWidth * DPR;
+    c.height = window.innerHeight * DPR;
+  });
+  drawMap();
+}
+
+function drawMap() {
+  const ctx = mapCtx;
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.save(); ctx.scale(DPR, DPR);
+  ctx.fillStyle = lightMode ? '#f3f0eb' : '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  // Draw hotspot regions as faint circles
+  const dotColor = lightMode ? 'rgba(200,90,32,0.04)' : 'rgba(240,160,80,0.03)';
+  ctx.fillStyle = dotColor;
+  HOTSPOTS.forEach(spot => {
+    const px = ((spot[1] + 180) / 360) * w;
+    const py = ((90 - spot[0]) / 180) * h;
+    ctx.beginPath();
+    ctx.arc(px, py, 20 + spot[2] * 15, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.restore();
+}
+
+function drawStrikes(dt) {
+  const ctx = sCtx;
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.save(); ctx.scale(DPR, DPR);
+
+  // Fade
+  const fadeAlpha = lightMode ? 0.08 : 0.06;
+  ctx.fillStyle = lightMode ? `rgba(243,240,235,${fadeAlpha})` : `rgba(0,0,0,${fadeAlpha})`;
+  ctx.fillRect(0, 0, w, h);
+
+  for (let i = strikeFlashes.length - 1; i >= 0; i--) {
+    const f = strikeFlashes[i];
+    f.age += dt;
+    const life = clamp(1 - f.age / 1.2, 0, 1);
+    if (life <= 0) { strikeFlashes.splice(i, 1); continue; }
+
+    if (lightMode) {
+      // Ink splat
+      ctx.fillStyle = f.pol > 0 ? 'rgba(122,138,64,' : 'rgba(200,90,32,';
+      ctx.globalAlpha = f.alpha * life * 0.25;
+      const r = f.size * (1 + f.age * 2);
+      // Irregular shape
+      ctx.beginPath();
+      const lobes = 4 + (Math.floor(f.x * 3) % 3);
+      for (let l = 0; l < lobes; l++) {
+        const angle = (l / lobes) * Math.PI * 2 + f.y * 0.01;
+        const wobble = 0.4 + ((f.x * (l + 1) * 7) % 100) / 100 * 0.8;
+        const px = f.x + Math.cos(angle) * r * wobble;
+        const py = f.y + Math.sin(angle) * r * wobble;
+        l === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Bright core
+      ctx.globalAlpha = f.alpha * life * 0.4;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.size * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Dark mode — bright flash + ring
+      const r = f.size * (1 + f.age * 3);
+      ctx.globalAlpha = f.alpha * life * 0.6;
+      ctx.fillStyle = f.pol > 0 ? '#80c0ff' : '#ffe080';
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.size * 0.4 * life, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = f.alpha * life * 0.2;
+      ctx.strokeStyle = f.pol > 0 ? '#80c0ff' : '#ffe080';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ============================================================
+// HUD
+// ============================================================
+
+function updateHUD() {
+  // Rate (strikes in last 10s, extrapolated to per-minute)
+  const rate10s = strikeBuf.length;
+  const ratePerMin = Math.round(rate10s * 6);
+  document.getElementById('vRate').innerHTML = `${ratePerMin}<span class="unit">/min</span>`;
+  document.getElementById('bRate').style.width = `${norm(ratePerMin, 0, 500) * 100}%`;
+
+  if (ratePerMin > peakRate) peakRate = ratePerMin;
+  document.getElementById('vPeak').innerHTML = `${peakRate}<span class="unit">/min</span>`;
+  document.getElementById('bPeak').style.width = `${norm(peakRate, 0, 500) * 100}%`;
+
+  document.getElementById('vDensity').innerHTML = `${rate10s}`;
+
+  // Latest
+  if (lastStrike) {
+    document.getElementById('vLatest').textContent = `${lastStrike.lat.toFixed(2)}, ${lastStrike.lon.toFixed(2)}`;
+    document.getElementById('vLatestLoc').textContent = lastStrike.region.toUpperCase();
+  }
+
+  // Polarity
+  const total = posCount + negCount;
+  if (total > 0) {
+    const pctPos = Math.round(posCount / total * 100);
+    document.getElementById('vPolarity').innerHTML = `+${pctPos}% <span class="unit">/ -${100 - pctPos}%</span>`;
+  }
+
+  // Active regions
+  const active = Object.values(regionDecay).filter(v => v > 0).length;
+  document.getElementById('vRegions').innerHTML = `${active}<span class="unit">/ 5</span>`;
+
+  // Region bars
+  const maxR = Math.max(1, ...Object.values(regionDecay));
+  document.getElementById('rAmericas').style.width = `${(regionDecay.americas / maxR) * 100}%`;
+  document.getElementById('rEurope').style.width = `${(regionDecay.europe / maxR) * 100}%`;
+  document.getElementById('rAfrica').style.width = `${(regionDecay.africa / maxR) * 100}%`;
+  document.getElementById('rAsia').style.width = `${(regionDecay.asia / maxR) * 100}%`;
+  document.getElementById('rOceania').style.width = `${(regionDecay.oceania / maxR) * 100}%`;
+
+  // Info strip
+  document.getElementById('infoTime').textContent = new Date().toLocaleTimeString('en-US', { hour12: false, timeZone: 'UTC' }) + ' UTC';
+  document.getElementById('infoRate').textContent = `${ratePerMin}/MIN`;
+  document.getElementById('infoTotal').textContent = `${totalStrikes.toLocaleString()} TOTAL`;
+}
+
+// Decay region counts every 5 seconds
+setInterval(() => {
+  for (const k in regionDecay) {
+    regionDecay[k] = Math.floor(regionDecay[k] * 0.6);
+  }
+}, 5000);
+
+function addFeedItem(strike) {
+  const feed = document.getElementById('feed');
+  const item = document.createElement('div');
+  item.className = 'feed-item';
+  const pol = strike.pol > 0 ? '+CG' : '-CG';
+  item.innerHTML = `<span class="mag">${pol}</span> ${strike.lat.toFixed(1)}, ${strike.lon.toFixed(1)} · ${strike.region}`;
+  feed.prepend(item);
+  while (feed.children.length > 10) feed.removeChild(feed.lastChild);
+}
+
+// Only log every Nth strike to keep feed readable
+let feedCounter = 0;
+const origHandleStrike = handleStrike;
+// Monkey-patch to add feed
+const _origHandle = handleStrike;
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+
+let lastTime = 0;
+let hudTimer = 0;
+let mapTimer = 0;
+let feedTimer = 0;
+
+resizeCanvases();
+window.addEventListener('resize', resizeCanvases);
+
+function mainLoop(ts) {
+  requestAnimationFrame(mainLoop);
+  const dt = Math.min((ts - lastTime) / 1000, 0.1);
+  lastTime = ts;
+
+  if (isRunning) {
+    drawStrikes(dt);
+
+    hudTimer += dt;
+    if (hudTimer > 0.2) {
+      updateHUD();
+      hudTimer = 0;
+    }
+
+    mapTimer += dt;
+    if (mapTimer > 10) {
+      drawMap();
+      mapTimer = 0;
+    }
+
+    // Feed — log every 20th strike
+    feedTimer += dt;
+    if (feedTimer > 0.5 && lastStrike) {
+      addFeedItem(lastStrike);
+      feedTimer = 0;
+    }
+  }
+}
+
+requestAnimationFrame(mainLoop);
+
+// ============================================================
+// CONTROLS
+// ============================================================
+
+let toggleLock = false;
+
+function startAll() {
+  if (audioCtx) { try { audioCtx.close(); } catch(e) {} }
+  audioCtx = null; masterGain = null; analyser = null;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  buildAudio();
+  audioCtx.resume();
+
+  isRunning = true;
+  totalStrikes = 0; peakRate = 0; posCount = 0; negCount = 0;
+  strikeCount = 0; strikeBuf = []; clusterBuf = [];
+  for (const k in regionCounts) regionCounts[k] = 0;
+  for (const k in regionDecay) regionDecay[k] = 0;
+  seenIds = new Set();
+
+  document.getElementById('startBtn').textContent = 'STOP';
+  document.getElementById('startBtn').classList.add('active');
+
+  connectBlitzortung();
+  drawMap();
+}
+
+let seenIds = new Set();
+
+function stopAll() {
+  isRunning = false;
+  if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+  wsConnected = false;
+  useSimulation = false;
+  if (simInterval) { clearInterval(simInterval); simInterval = null; }
+  if (audioCtx) { try { audioCtx.close(); } catch(e) {} }
+  audioCtx = null; masterGain = null;
+  document.getElementById('startBtn').textContent = 'LISTEN';
+  document.getElementById('startBtn').classList.remove('active');
+  setConnectionState('');
+}
+
+function toggle() {
+  if (toggleLock) return;
+  toggleLock = true;
+  setTimeout(() => toggleLock = false, 400);
+  if (!isRunning) startAll(); else stopAll();
+}
+
+document.getElementById('startBtn').addEventListener('click', toggle);
+document.getElementById('startBtn').addEventListener('touchend', e => { e.preventDefault(); toggle(); });
+
+document.getElementById('slVol').addEventListener('input', e => {
+  if (masterGain) masterGain.gain.value = e.target.value / 100;
+  document.getElementById('sVol').textContent = e.target.value;
+});
+
+document.getElementById('slDecay').addEventListener('input', e => {
+  decayTime = e.target.value / 100;
+  document.getElementById('sDecay').textContent = e.target.value;
+});
+
+document.getElementById('slPitch').addEventListener('input', e => {
+  pitchMult = e.target.value / 100;
+  document.getElementById('sPitch').textContent = e.target.value;
+});
+
+document.getElementById('themeToggle').addEventListener('click', () => {
+  lightMode = !lightMode;
+  document.body.classList.toggle('dark', !lightMode);
+  document.getElementById('themeToggle').textContent = lightMode ? 'DARK' : 'LIGHT';
+  document.getElementById('themeToggle').classList.toggle('active', !lightMode);
+  drawMap();
+});
+</script>
+</body>
+</html>
