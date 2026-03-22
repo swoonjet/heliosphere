@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tectonic — Live Seismic Percussion</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #f3f0eb;
+    --text: #666;
+    --text-bright: #222;
+    --text-dim: #999;
+    --text-ghost: #bbb;
+    --border: #d0ccc4;
+    --border-hover: #a09888;
+    --border-active: #777;
+    --track: #e0ddd6;
+    --accent: #c85a20;
+    --accent-dim: rgba(200,90,32,0.15);
+    --up: #7a8a40;
+    --down: #c85a20;
+  }
+
+  body.dark {
+    --bg: #000;
+    --text: #888;
+    --text-bright: #ddd;
+    --text-dim: #555;
+    --text-ghost: #333;
+    --border: #222;
+    --border-hover: #444;
+    --border-active: #666;
+    --track: #181818;
+    --accent: #f08040;
+    --accent-dim: rgba(240,128,64,0.12);
+    --up: #4f8;
+    --down: #f55;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    height: 100vh;
+    overflow: hidden;
+    cursor: crosshair;
+    user-select: none;
+    transition: background 0.6s, color 0.6s;
+  }
+
+  canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
+  canvas#mapCanvas { z-index: 1; }
+  canvas#hitCanvas { z-index: 2; pointer-events: none; }
+
+  /* HUD */
+  .hud {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 24px 28px;
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .hud-left, .hud-right {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .hud-right { align-items: flex-end; }
+
+  .metric .label {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .metric .value {
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--text-bright);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric .value .unit {
+    font-size: 0.4em;
+    color: var(--text-dim);
+    margin-left: 4px;
+  }
+
+  .metric .sub {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-top: 2px;
+    letter-spacing: 0.04em;
+  }
+
+  .metric .bar-track {
+    width: 140px;
+    height: 3px;
+    background: var(--track);
+    margin-top: 5px;
+    border-radius: 1px;
+    position: relative;
+  }
+
+  .hud-right .bar-track { margin-left: auto; }
+
+  .metric .bar-fill {
+    height: 100%;
+    border-radius: 1px;
+    background: var(--accent);
+    transition: width 0.4s ease;
+    position: absolute;
+    top: 0; left: 0;
+  }
+
+  /* Info strip */
+  .info-strip {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
+    pointer-events: none;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .info-strip .sep { margin: 0 6px; color: var(--text-ghost); }
+
+  /* Event feed */
+  .feed {
+    position: fixed;
+    left: 28px;
+    bottom: 80px;
+    z-index: 10;
+    pointer-events: none;
+    width: 280px;
+  }
+
+  .feed-item {
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    margin-bottom: 3px;
+    opacity: 0;
+    transform: translateY(6px);
+    animation: feedIn 0.3s forwards;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .feed-item .mag {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  @keyframes feedIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Station indicators */
+  .stations {
+    position: fixed;
+    right: 28px;
+    bottom: 80px;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+
+  .station-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+
+  .station-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-ghost);
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+
+  .station-dot.active {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-dim);
+  }
+
+  /* Center */
+  .center-ui {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    pointer-events: auto;
+  }
+
+  .start-btn {
+    padding: 12px 36px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+
+  .start-btn:hover { border-color: var(--border-hover); color: var(--text-bright); }
+  .start-btn.active { border-color: var(--accent); color: var(--accent); }
+
+  .status-line {
+    font-size: 8px;
+    color: var(--text-ghost);
+    letter-spacing: 0.08em;
+  }
+
+  /* Controls */
+  .controls-right {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+    pointer-events: auto;
+  }
+
+  .ctrl-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .ctrl-btn:hover { border-color: var(--border-hover); color: var(--text); }
+  .ctrl-btn.active { border-color: var(--accent); color: var(--accent); }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .slider-row label {
+    font-size: 8px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    width: 40px;
+    text-align: right;
+  }
+
+  .slider-row span {
+    font-size: 8px;
+    color: var(--text-dim);
+    width: 24px;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 80px;
+    height: 2px;
+    background: var(--track);
+    outline: none;
+    border-radius: 1px;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    cursor: pointer;
+  }
+
+  /* Event flash */
+  .event-flash {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    opacity: 0;
+    z-index: 25;
+    pointer-events: none;
+    text-align: center;
+    line-height: 1.6;
+    color: var(--accent);
+    text-shadow: 0 0 40px var(--accent-dim);
+  }
+
+  .event-flash.show { animation: flashIn 4s forwards; }
+  @keyframes flashIn {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+    8% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    60% { opacity: 0.6; }
+    100% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="mapCanvas"></canvas>
+<canvas id="hitCanvas"></canvas>
+
+<div class="info-strip">
+  <span id="infoTime">—</span>
+  <span class="sep">·</span>
+  <span id="infoQuakes">—</span>
+  <span class="sep">·</span>
+  <span id="infoRate">—</span>
+  <span class="sep">·</span>
+  <span id="infoLastFetch">—</span>
+</div>
+
+<div class="hud">
+  <div class="hud-left">
+    <div class="metric">
+      <div class="label">Latest Event</div>
+      <div class="value" id="vMag">—</div>
+      <div class="sub" id="vPlace">—</div>
+    </div>
+    <div class="metric">
+      <div class="label">Depth</div>
+      <div class="value" id="vDepth">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bDepth" style="width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="label">Events / Hour</div>
+      <div class="value" id="vRate">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bRate" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="hud-right">
+    <div class="metric">
+      <div class="label">Max Magnitude (24h)</div>
+      <div class="value" id="vMaxMag">—</div>
+      <div class="sub" id="vMaxPlace">—</div>
+    </div>
+    <div class="metric">
+      <div class="label">Significance</div>
+      <div class="value" id="vSig">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bSig" style="width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="label">Waveform RMS</div>
+      <div class="value" id="vRms">—</div>
+      <div class="bar-track"><div class="bar-fill" id="bRms" style="width:0%"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="feed" id="feed"></div>
+
+<div class="stations" id="stationList"></div>
+
+<div class="event-flash" id="eventFlash"></div>
+
+<div class="center-ui">
+  <button class="start-btn" id="startBtn">LISTEN</button>
+  <div class="status-line" id="statusLine">USGS + IRIS SEISMIC FEEDS</div>
+</div>
+
+<div class="controls-right">
+  <div class="slider-row">
+    <label>VOL</label>
+    <input type="range" id="slVol" min="0" max="100" value="65">
+    <span id="sVol">65</span>
+  </div>
+  <div class="slider-row">
+    <label>TEMPO</label>
+    <input type="range" id="slTempo" min="40" max="200" value="90">
+    <span id="sTempo">90</span>
+  </div>
+  <div class="slider-row">
+    <label>SENSE</label>
+    <input type="range" id="slSens" min="1" max="100" value="70">
+    <span id="sSens">70</span>
+  </div>
+  <button class="ctrl-btn active" id="themeToggle">DARK</button>
+</div>
+
+<script>
+// ============================================================
+// TECTONIC — Live seismic data → percussion
+//
+// USGS earthquake events → accent hits (mag/depth/location mapped)
+// IRIS seismograph waveforms → continuous micro-rhythm
+// The Earth is always vibrating. This never stops.
+// ============================================================
+
+const USGS_HOUR = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson';
+const USGS_DAY = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson';
+
+// IRIS stations for waveform polling — spread across tectonic boundaries
+const STATIONS = [
+  { net: 'IU', sta: 'ANMO', name: 'Albuquerque NM', lat: 34.9, lon: -106.5 },
+  { net: 'IU', sta: 'CCM',  name: 'Cathedral Cave MO', lat: 38.1, lon: -91.2 },
+  { net: 'IU', sta: 'TATO', name: 'Taipei TW', lat: 24.97, lon: 121.5 },
+  { net: 'IU', sta: 'KONO', name: 'Kongsberg NO', lat: 59.6, lon: 9.6 },
+  { net: 'IU', sta: 'SNZO', name: 'South Karori NZ', lat: -41.3, lon: 174.7 },
+];
+
+let audioCtx, masterGain, analyser;
+let isRunning = false;
+let lightMode = true;
+let sensitivity = 0.7;
+let bpm = 90;
+
+// Seismic state
+let quakes = [];           // current hour events
+let dayQuakes = [];        // 24h events for stats
+let seenIds = new Set();   // prevent re-triggering
+let waveforms = {};        // per-station latest waveform arrays
+let stationRms = {};       // per-station RMS
+let lastQuake = null;      // most recent event
+let maxDayQuake = null;    // biggest in 24h
+let hitFlashes = [];       // visual feedback
+
+// Percussion voices references
+let percVoices = {};
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function norm(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// ============================================================
+// AUDIO ENGINE
+// ============================================================
+
+function buildAudioGraph() {
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.65;
+
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.8;
+
+  masterGain.connect(analyser);
+  analyser.connect(audioCtx.destination);
+}
+
+// --- Percussion Synthesis ---
+
+function playKick(vel = 0.5, pitch = 1.0, decay = 0.2) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(160 * pitch, now);
+  osc.frequency.exponentialRampToValueAtTime(20 * pitch, now + decay);
+  env.gain.setValueAtTime(vel * 0.35, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + decay + 0.05);
+  // Click
+  const click = audioCtx.createOscillator();
+  const clickEnv = audioCtx.createGain();
+  click.type = 'square';
+  click.frequency.value = 800 * pitch;
+  clickEnv.gain.setValueAtTime(vel * 0.15, now);
+  clickEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.008);
+  osc.connect(env); env.connect(masterGain);
+  click.connect(clickEnv); clickEnv.connect(masterGain);
+  osc.start(now); osc.stop(now + decay + 0.1);
+  click.start(now); click.stop(now + 0.015);
+}
+
+function playSnare(vel = 0.4, brightness = 1.0) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  // Noise
+  const len = 0.08 + brightness * 0.04;
+  const bufSize = Math.floor(audioCtx.sampleRate * len);
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1);
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'bandpass';
+  filt.frequency.value = 2000 + brightness * 3000;
+  filt.Q.value = 1.5;
+  const env = audioCtx.createGain();
+  env.gain.setValueAtTime(vel * 0.25, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + len);
+  src.connect(filt); filt.connect(env); env.connect(masterGain);
+  src.start(now); src.stop(now + len + 0.01);
+  // Body tone
+  const osc = audioCtx.createOscillator();
+  const oEnv = audioCtx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.value = 180;
+  oEnv.gain.setValueAtTime(vel * 0.12, now);
+  oEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+  osc.connect(oEnv); oEnv.connect(masterGain);
+  osc.start(now); osc.stop(now + 0.07);
+}
+
+function playHat(vel = 0.3, open = false) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const len = open ? 0.12 : 0.025;
+  const bufSize = Math.floor(audioCtx.sampleRate * (len + 0.02));
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1);
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const hp = audioCtx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 7000;
+  const env = audioCtx.createGain();
+  env.gain.setValueAtTime(vel * 0.12, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + len);
+  const pan = audioCtx.createStereoPanner();
+  pan.pan.value = (Math.random() - 0.5) * 0.6;
+  src.connect(hp); hp.connect(env); env.connect(pan); pan.connect(masterGain);
+  src.start(now); src.stop(now + len + 0.02);
+}
+
+function playRimClick(vel = 0.3, pitch = 1.0) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.value = 800 * pitch;
+  env.gain.setValueAtTime(vel * 0.15, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+  osc.connect(env); env.connect(masterGain);
+  osc.start(now); osc.stop(now + 0.05);
+}
+
+function playTom(vel = 0.4, pitch = 1.0, pan = 0) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  const panner = audioCtx.createStereoPanner();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(200 * pitch, now);
+  osc.frequency.exponentialRampToValueAtTime(80 * pitch, now + 0.15);
+  env.gain.setValueAtTime(vel * 0.2, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+  panner.pan.value = clamp(pan, -1, 1);
+  osc.connect(env); env.connect(panner); panner.connect(masterGain);
+  osc.start(now); osc.stop(now + 0.25);
+}
+
+function playCrash(vel = 0.5) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const len = 1.5;
+  const bufSize = Math.floor(audioCtx.sampleRate * len);
+  const buf = audioCtx.createBuffer(2, bufSize, audioCtx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < bufSize; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 1.2);
+    }
+  }
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 5000; bp.Q.value = 0.5;
+  const env = audioCtx.createGain();
+  env.gain.setValueAtTime(vel * 0.1, now);
+  env.gain.exponentialRampToValueAtTime(0.001, now + len);
+  src.connect(bp); bp.connect(env); env.connect(masterGain);
+  src.start(now); src.stop(now + len + 0.05);
+}
+
+function playSubRumble(vel = 0.4, duration = 1.0) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const osc2 = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  const filt = audioCtx.createBiquadFilter();
+  osc.type = 'sine'; osc.frequency.value = 30;
+  osc2.type = 'sine'; osc2.frequency.value = 31.5;
+  filt.type = 'lowpass'; filt.frequency.value = 80;
+  env.gain.setValueAtTime(0.001, now);
+  env.gain.linearRampToValueAtTime(vel * 0.2, now + 0.1);
+  env.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(filt); osc2.connect(filt);
+  filt.connect(env); env.connect(masterGain);
+  osc.start(now); osc2.start(now);
+  osc.stop(now + duration + 0.1); osc2.stop(now + duration + 0.1);
+}
+
+// ============================================================
+// EARTHQUAKE EVENT → PERCUSSION
+// ============================================================
+
+function triggerQuakePercussion(quake) {
+  const mag = quake.properties.mag || 0;
+  const depth = quake.geometry.coordinates[2] || 5;
+  const sig = quake.properties.sig || 0;
+  const lon = quake.geometry.coordinates[0];
+  const lat = quake.geometry.coordinates[1];
+  const place = quake.properties.place || '—';
+
+  // Pan from longitude (-180 to 180 → -1 to 1)
+  const pan = clamp(lon / 180, -1, 1);
+  // Pitch from depth (0–700km → high to low)
+  const depthPitch = 1.5 - norm(depth, 0, 500) * 1.0;
+  // Velocity from magnitude
+  const vel = clamp(0.2 + mag * 0.15, 0.1, 1.0);
+
+  // Visual flash at map position
+  const w = window.innerWidth, h = window.innerHeight;
+  const px = ((lon + 180) / 360) * w;
+  const py = ((90 - lat) / 180) * h;
+  hitFlashes.push({
+    x: px, y: py,
+    size: 10 + mag * 20,
+    alpha: 0.3 + mag * 0.1,
+    age: 0,
+    mag: mag,
+  });
+
+  // Route to percussion by magnitude
+  if (mag < 0.5) {
+    // Micro-quake → ghost hat
+    playHat(vel * 0.5);
+  } else if (mag < 2) {
+    // Small → rim click
+    playRimClick(vel, depthPitch);
+  } else if (mag < 3) {
+    // Medium-small → snare ghost
+    playSnare(vel * 0.6, norm(depth, 0, 300));
+  } else if (mag < 4) {
+    // Medium → tom
+    playTom(vel, depthPitch, pan);
+  } else if (mag < 5) {
+    // Strong → kick + snare
+    playKick(vel, depthPitch, 0.25);
+    setTimeout(() => playSnare(vel * 0.7, 1.0), 30);
+  } else if (mag < 6) {
+    // Major → big kick + crash + rumble
+    playKick(vel, depthPitch * 0.7, 0.4);
+    playCrash(vel);
+    playSubRumble(vel, 1.5);
+    showFlash(`M${mag.toFixed(1)} — ${place}`);
+  } else {
+    // Great → everything
+    playKick(1.0, 0.5, 0.6);
+    playCrash(0.8);
+    playSubRumble(0.8, 3.0);
+    setTimeout(() => playSnare(0.7, 1.0), 50);
+    setTimeout(() => playTom(0.6, 0.5, pan), 100);
+    showFlash(`M${mag.toFixed(1)} — ${place}`);
+  }
+
+  // Update last quake
+  lastQuake = quake;
+  addFeedItem(mag, place, depth);
+}
+
+// ============================================================
+// WAVEFORM-DRIVEN RHYTHM — continuous micro-percussion
+// ============================================================
+
+let seqStep = 0;
+let seqTimer = null;
+
+function startSequencer() {
+  seqStep = 0;
+  seqTick();
+}
+
+function seqTick() {
+  if (!isRunning) return;
+
+  const beatMs = (60 / bpm) * 1000;
+  const subMs = beatMs / 4; // 16th note grid
+
+  // Gather waveform energy from all stations
+  let totalRms = 0;
+  let stationCount = 0;
+  let maxStationRms = 0;
+  let maxStationIdx = 0;
+
+  STATIONS.forEach((st, i) => {
+    const rms = stationRms[st.sta] || 0;
+    totalRms += rms;
+    stationCount++;
+    if (rms > maxStationRms) {
+      maxStationRms = rms;
+      maxStationIdx = i;
+    }
+  });
+
+  const avgRms = stationCount > 0 ? totalRms / stationCount : 0;
+  const rmsNorm = norm(avgRms, 0, 2000) * sensitivity;
+  const isOnBeat = seqStep % 4 === 0;
+  const isBackbeat = seqStep % 4 === 2;
+
+  // --- Waveform-driven pattern ---
+  // The seismograph RMS determines HOW MUCH plays.
+  // Quiet Earth = sparse. Active Earth = dense.
+
+  // Kick on downbeat if there's enough energy
+  if (isOnBeat && rmsNorm > 0.05) {
+    playKick(0.15 + rmsNorm * 0.3, 0.8 + rmsNorm * 0.4, 0.15);
+  }
+
+  // Snare on backbeat, probability from RMS
+  if (isBackbeat && Math.random() < rmsNorm * 0.7) {
+    playSnare(0.1 + rmsNorm * 0.2, rmsNorm);
+  }
+
+  // Hats — density from waveform
+  if (Math.random() < rmsNorm * 0.5 + 0.05) {
+    const open = Math.random() < rmsNorm * 0.2;
+    playHat(0.05 + rmsNorm * 0.15, open);
+  }
+
+  // Ghost toms from individual active stations
+  STATIONS.forEach((st, i) => {
+    const rms = norm(stationRms[st.sta] || 0, 0, 3000);
+    if (rms > 0.3 && Math.random() < rms * 0.15 * sensitivity) {
+      const pan = clamp(st.lon / 180, -1, 1);
+      const pitch = 0.6 + (i / STATIONS.length) * 0.8;
+      playTom(rms * 0.15, pitch, pan);
+      // Flash the station dot
+      flashStation(i);
+    }
+  });
+
+  // Rim clicks — sparse texture
+  if (seqStep % 8 === 3 && rmsNorm > 0.1 && Math.random() < 0.4) {
+    playRimClick(0.08 + rmsNorm * 0.1, 0.8 + Math.random() * 0.4);
+  }
+
+  seqStep++;
+  seqTimer = setTimeout(seqTick, subMs);
+}
+
+// ============================================================
+// DATA FETCHING
+// ============================================================
+
+async function fetchQuakes() {
+  try {
+    const [hourRes, dayRes] = await Promise.all([
+      fetch(USGS_HOUR).then(r => r.json()),
+      fetch(USGS_DAY).then(r => r.json()),
+    ]);
+
+    const prevCount = quakes.length;
+    quakes = hourRes.features || [];
+    dayQuakes = dayRes.features || [];
+
+    // Find new events
+    const newQuakes = [];
+    for (const q of quakes) {
+      if (!seenIds.has(q.id)) {
+        seenIds.add(q.id);
+        newQuakes.push(q);
+      }
+    }
+
+    // Trigger percussion for new events
+    // Sort by time ascending so they play in order
+    newQuakes.sort((a, b) => a.properties.time - b.properties.time);
+
+    // Stagger new events slightly so they don't all hit at once
+    newQuakes.forEach((q, i) => {
+      setTimeout(() => {
+        if (isRunning) triggerQuakePercussion(q);
+      }, i * 200);
+    });
+
+    // Stats
+    if (dayQuakes.length > 0) {
+      maxDayQuake = dayQuakes.reduce((a, b) =>
+        (a.properties.mag || 0) > (b.properties.mag || 0) ? a : b
+      );
+    }
+
+    updateHUD();
+    document.getElementById('infoLastFetch').textContent = `FETCH ${new Date().toLocaleTimeString('en-US', { hour12: false })}`;
+
+  } catch (e) {
+    document.getElementById('statusLine').textContent = `ERROR: ${e.message}`;
+  }
+}
+
+async function fetchWaveform(station) {
+  try {
+    // Get 5 seconds of data ending ~10 seconds ago (to allow for data availability)
+    const end = new Date(Date.now() - 10000);
+    const start = new Date(end.getTime() - 5000);
+    const fmt = d => d.toISOString().split('.')[0];
+
+    const url = `https://service.iris.edu/irisws/timeseries/1/query?net=${station.net}&sta=${station.sta}&loc=00&cha=BHZ&starttime=${fmt(start)}&endtime=${fmt(end)}&output=ascii&nodata=204`;
+
+    const res = await fetch(url);
+    if (res.status === 204 || !res.ok) return;
+
+    const text = await res.text();
+    const lines = text.trim().split('\n');
+    const samples = [];
+
+    for (const line of lines) {
+      if (line.startsWith('TIMESERIES') || line.startsWith('#')) continue;
+      const vals = line.trim().split(/\s+/);
+      for (const v of vals) {
+        const n = parseInt(v);
+        if (!isNaN(n)) samples.push(n);
+      }
+    }
+
+    if (samples.length > 0) {
+      waveforms[station.sta] = samples;
+      // Compute RMS
+      let sum = 0;
+      for (const s of samples) sum += s * s;
+      stationRms[station.sta] = Math.sqrt(sum / samples.length);
+    }
+  } catch (e) {
+    // Silent fail — station might be temporarily unavailable
+  }
+}
+
+async function fetchAllWaveforms() {
+  // Fetch in parallel but don't block
+  await Promise.allSettled(STATIONS.map(s => fetchWaveform(s)));
+  updateHUD();
+}
+
+// ============================================================
+// HUD
+// ============================================================
+
+function updateHUD() {
+  // Latest event
+  if (lastQuake) {
+    const m = lastQuake.properties.mag || 0;
+    document.getElementById('vMag').innerHTML = `M${m.toFixed(1)}`;
+    document.getElementById('vPlace').textContent = lastQuake.properties.place || '—';
+    const d = lastQuake.geometry.coordinates[2] || 0;
+    document.getElementById('vDepth').innerHTML = `${Math.round(d)}<span class="unit">km</span>`;
+    document.getElementById('bDepth').style.width = `${norm(d, 0, 500) * 100}%`;
+  }
+
+  // Rate
+  const rate = quakes.length;
+  document.getElementById('vRate').innerHTML = `${rate}<span class="unit">/hr</span>`;
+  document.getElementById('bRate').style.width = `${norm(rate, 0, 30) * 100}%`;
+
+  // Max day
+  if (maxDayQuake) {
+    const mm = maxDayQuake.properties.mag || 0;
+    document.getElementById('vMaxMag').innerHTML = `M${mm.toFixed(1)}`;
+    document.getElementById('vMaxPlace').textContent = maxDayQuake.properties.place || '—';
+  }
+
+  // Significance
+  if (lastQuake) {
+    const sig = lastQuake.properties.sig || 0;
+    document.getElementById('vSig').innerHTML = `${sig}`;
+    document.getElementById('bSig').style.width = `${norm(sig, 0, 600) * 100}%`;
+  }
+
+  // Waveform RMS (average)
+  let totalRms = 0, n = 0;
+  STATIONS.forEach(st => {
+    if (stationRms[st.sta]) { totalRms += stationRms[st.sta]; n++; }
+  });
+  const avgRms = n > 0 ? totalRms / n : 0;
+  document.getElementById('vRms').innerHTML = `${Math.round(avgRms)}`;
+  document.getElementById('bRms').style.width = `${norm(avgRms, 0, 5000) * 100}%`;
+
+  // Info strip
+  document.getElementById('infoTime').textContent = new Date().toLocaleTimeString('en-US', { hour12: false, timeZone: 'UTC' }) + ' UTC';
+  document.getElementById('infoQuakes').textContent = `${dayQuakes.length} EVENTS / 24H`;
+  document.getElementById('infoRate').textContent = `${rate}/HR`;
+
+  // Station list
+  updateStationList();
+}
+
+function updateStationList() {
+  const el = document.getElementById('stationList');
+  if (el.children.length === 0) {
+    // Build once
+    STATIONS.forEach((st, i) => {
+      const row = document.createElement('div');
+      row.className = 'station-row';
+      row.innerHTML = `<span style="font-size:8px">${st.name}</span><div class="station-dot" id="sDot${i}"></div>`;
+      el.appendChild(row);
+    });
+  }
+  // Update dots
+  STATIONS.forEach((st, i) => {
+    const rms = stationRms[st.sta] || 0;
+    const dot = document.getElementById(`sDot${i}`);
+    if (dot) dot.classList.toggle('active', rms > 500);
+  });
+}
+
+function flashStation(idx) {
+  const dot = document.getElementById(`sDot${idx}`);
+  if (!dot) return;
+  dot.classList.add('active');
+  setTimeout(() => {
+    const rms = stationRms[STATIONS[idx].sta] || 0;
+    if (rms < 500) dot.classList.remove('active');
+  }, 200);
+}
+
+function addFeedItem(mag, place, depth) {
+  const feed = document.getElementById('feed');
+  const item = document.createElement('div');
+  item.className = 'feed-item';
+  item.innerHTML = `<span class="mag">M${mag.toFixed(1)}</span> ${place} · ${Math.round(depth)}km`;
+  feed.prepend(item);
+  while (feed.children.length > 8) feed.removeChild(feed.lastChild);
+}
+
+function showFlash(text) {
+  const el = document.getElementById('eventFlash');
+  el.textContent = text;
+  el.className = 'event-flash show';
+  setTimeout(() => el.className = 'event-flash', 4000);
+}
+
+// ============================================================
+// VISUALIZATION — World map dots + hit flashes
+// ============================================================
+
+const mapCanvas = document.getElementById('mapCanvas');
+const hitCanvas = document.getElementById('hitCanvas');
+const mapCtx = mapCanvas.getContext('2d');
+const hitCtx = hitCanvas.getContext('2d');
+const DPR = window.devicePixelRatio || 1;
+
+function resizeCanvases() {
+  [mapCanvas, hitCanvas].forEach(c => {
+    c.width = window.innerWidth * DPR;
+    c.height = window.innerHeight * DPR;
+  });
+}
+
+function drawMap() {
+  const ctx = mapCtx;
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.save();
+  ctx.scale(DPR, DPR);
+
+  // Background
+  ctx.fillStyle = lightMode ? '#f3f0eb' : '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  // Plot all day quakes as tiny dots
+  const dotColor = lightMode ? 'rgba(200,90,32,0.08)' : 'rgba(240,128,64,0.06)';
+  ctx.fillStyle = dotColor;
+  for (const q of dayQuakes) {
+    const lon = q.geometry.coordinates[0];
+    const lat = q.geometry.coordinates[1];
+    const mag = q.properties.mag || 0;
+    const px = ((lon + 180) / 360) * w;
+    const py = ((90 - lat) / 180) * h;
+    const r = 1 + mag * 0.8;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Hour quakes brighter
+  const hourColor = lightMode ? 'rgba(200,90,32,0.25)' : 'rgba(240,128,64,0.2)';
+  ctx.fillStyle = hourColor;
+  for (const q of quakes) {
+    const lon = q.geometry.coordinates[0];
+    const lat = q.geometry.coordinates[1];
+    const mag = q.properties.mag || 0;
+    const px = ((lon + 180) / 360) * w;
+    const py = ((90 - lat) / 180) * h;
+    const r = 2 + mag * 1.2;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Station markers
+  const stColor = lightMode ? '#999' : '#444';
+  ctx.fillStyle = stColor;
+  ctx.font = '7px IBM Plex Mono';
+  STATIONS.forEach(st => {
+    const px = ((st.lon + 180) / 360) * w;
+    const py = ((90 - st.lat) / 180) * h;
+    ctx.fillRect(px - 1, py - 1, 3, 3);
+  });
+
+  ctx.restore();
+}
+
+function drawHits(dt) {
+  const ctx = hitCtx;
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.save();
+  ctx.scale(DPR, DPR);
+  ctx.clearRect(0, 0, w, h);
+
+  for (let i = hitFlashes.length - 1; i >= 0; i--) {
+    const f = hitFlashes[i];
+    f.age += dt;
+    const life = clamp(1 - f.age / 2.5, 0, 1);
+    if (life <= 0) { hitFlashes.splice(i, 1); continue; }
+
+    const r = f.size * (1 + f.age * 0.8);
+    const accentColor = lightMode ? '200,90,32' : '240,128,64';
+
+    if (lightMode) {
+      // Inky organic
+      ctx.fillStyle = `rgba(${accentColor}, ${life * 0.12})`;
+      ctx.beginPath();
+      const lobes = 5 + Math.floor(f.x * 3) % 4;
+      for (let l = 0; l < lobes; l++) {
+        const angle = (l / lobes) * Math.PI * 2;
+        const wobble = 0.5 + ((f.x * (l + 1) * 13) % 100) / 100 * 0.7;
+        const px = f.x + Math.cos(angle) * r * wobble;
+        const py = f.y + Math.sin(angle) * r * wobble;
+        l === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Gradient core
+      const grad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r * 0.5);
+      grad.addColorStop(0, `rgba(${accentColor}, ${life * 0.2})`);
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, r * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Dark mode — expanding rings
+      ctx.strokeStyle = `rgba(${accentColor}, ${life * 0.3})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = `rgba(${accentColor}, ${life * 0.15})`;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, r * 0.15, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+
+let lastTime = 0;
+let hudTimer = 0;
+let mapRedrawTimer = 0;
+
+resizeCanvases();
+window.addEventListener('resize', resizeCanvases);
+
+function mainLoop(timestamp) {
+  requestAnimationFrame(mainLoop);
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+  lastTime = timestamp;
+
+  if (isRunning) {
+    drawHits(dt);
+
+    hudTimer += dt;
+    if (hudTimer > 0.25) {
+      updateHUD();
+      hudTimer = 0;
+    }
+
+    mapRedrawTimer += dt;
+    if (mapRedrawTimer > 5) {
+      drawMap();
+      mapRedrawTimer = 0;
+    }
+  }
+}
+
+requestAnimationFrame(mainLoop);
+
+// ============================================================
+// CONTROLS
+// ============================================================
+
+let fetchQuakeInterval, fetchWaveInterval;
+let toggleLock = false;
+
+function startAll() {
+  if (audioCtx) { try { audioCtx.close(); } catch(e) {} }
+  audioCtx = null; masterGain = null; analyser = null;
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  buildAudioGraph();
+  audioCtx.resume();
+
+  isRunning = true;
+  document.getElementById('startBtn').textContent = 'STOP';
+  document.getElementById('startBtn').classList.add('active');
+
+  // Initial fetch
+  fetchQuakes();
+  fetchAllWaveforms();
+  drawMap();
+
+  // Polling
+  fetchQuakeInterval = setInterval(fetchQuakes, 30000);
+  fetchWaveInterval = setInterval(fetchAllWaveforms, 8000);
+
+  startSequencer();
+}
+
+function stopAll() {
+  isRunning = false;
+  clearTimeout(seqTimer);
+  clearInterval(fetchQuakeInterval);
+  clearInterval(fetchWaveInterval);
+  if (audioCtx) { try { audioCtx.close(); } catch(e) {} }
+  audioCtx = null; masterGain = null; analyser = null;
+  document.getElementById('startBtn').textContent = 'LISTEN';
+  document.getElementById('startBtn').classList.remove('active');
+}
+
+function toggle() {
+  if (toggleLock) return;
+  toggleLock = true;
+  setTimeout(() => toggleLock = false, 400);
+  if (!isRunning) startAll(); else stopAll();
+}
+
+document.getElementById('startBtn').addEventListener('click', toggle);
+document.getElementById('startBtn').addEventListener('touchend', (e) => { e.preventDefault(); toggle(); });
+
+document.getElementById('slVol').addEventListener('input', e => {
+  if (masterGain) masterGain.gain.value = e.target.value / 100;
+  document.getElementById('sVol').textContent = e.target.value;
+});
+
+document.getElementById('slTempo').addEventListener('input', e => {
+  bpm = parseInt(e.target.value);
+  document.getElementById('sTempo').textContent = bpm;
+});
+
+document.getElementById('slSens').addEventListener('input', e => {
+  sensitivity = e.target.value / 100;
+  document.getElementById('sSens').textContent = e.target.value;
+});
+
+document.getElementById('themeToggle').addEventListener('click', () => {
+  lightMode = !lightMode;
+  document.body.classList.toggle('dark', !lightMode);
+  document.getElementById('themeToggle').textContent = lightMode ? 'DARK' : 'LIGHT';
+  document.getElementById('themeToggle').classList.toggle('active', !lightMode);
+  drawMap();
+});
+</script>
+</body>
+</html>
